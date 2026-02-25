@@ -932,17 +932,12 @@ Ask the user (via `AskUserQuestion`) **only one question**:
 4. **Stage untracked files for diffing** — if there are untracked files (`??` in porcelain output), run `git add -N <file>` (intent-to-add) for each one so they appear in git diff. This does NOT actually stage the files for commit — it only makes them visible to diff.
 5. Run the appropriate `git diff --stat` command (with or without `HEAD` per step 3) to get a summary of all changed files.
 6. If the number of changed files is very large, ask the user which files to focus on, or split into multiple review sessions.
-7. **Locate the plan file** — check for the implementation plan that guided these changes. Common locations:
-   - `.claude/plan.md`
-   - `plan.md`
-   - The plan mode output file
-   - Ask the user if the plan file location is unclear.
-   If no plan file exists, proceed without it (but having one significantly improves review quality).
+7. **Extract the plan from conversation** — look back through the conversation history for the implementation plan that guided these changes. This could be a plan from plan mode, a plan discussed with the user, or task instructions. Summarize the plan into a concise text block that you will embed directly in the Codex prompt. If no plan exists in the conversation, proceed without it (but having one significantly improves review quality).
 
 ## Prompt Construction Principle
 
 **Only include in the Codex prompt what Codex cannot access on its own:**
-- The path to the plan file (so Codex can cross-reference the implementation intent)
+- The implementation plan (extracted from the conversation and embedded directly in the prompt, so Codex can cross-reference the implementation intent)
 - The user's original request / task description
 - Important context from the conversation: user comments, constraints, preferences, architectural decisions discussed verbally
 - Clarifications or special instructions the user gave
@@ -950,7 +945,6 @@ Ask the user (via `AskUserQuestion`) **only one question**:
 
 **Do NOT include:**
 - The diff content (Codex runs `git diff HEAD` itself)
-- The plan content (Codex reads the file itself)
 - Code snippets Codex can read from the repo
 - Information Codex can derive by reading files
 
@@ -1029,8 +1023,8 @@ You are the CODE REVIEWER. You review ONLY — you do NOT modify any code. Your 
 4. Read any relevant source files for additional context if needed.
 
 ## Implementation Plan
-Read the plan file for context on what these changes are supposed to achieve: <ABSOLUTE_PATH_TO_PLAN_FILE>
-(If no plan file exists, write: "No plan file available — review the diff based on code quality alone.")
+<PLAN_CONTENT_FROM_CONVERSATION>
+(If no plan exists in the conversation, write: "No implementation plan available — review the diff based on code quality alone.")
 
 ## User's Original Request
 <The user's original task/request>
@@ -1042,7 +1036,7 @@ Read the plan file for context on what these changes are supposed to achieve: <A
 
 ## Instructions
 1. Read the diff using the git commands above.
-2. If a plan file is provided, read it and cross-reference: does the implementation match the plan? Are there deviations?
+2. Read the implementation plan provided above and cross-reference: does the implementation match the plan? Are there deviations?
 3. Analyze every changed file and produce your review in the EXACT format below.
 
 ## Required Output Format
@@ -1062,7 +1056,7 @@ After all issues, provide:
 ### VERDICT
 - **Result**: REJECT | APPROVE_WITH_CHANGES | APPROVE
 - **Summary**: 2-3 sentence overall assessment.
-- **Plan Alignment**: Does the implementation correctly follow the plan? Note any deviations. (Skip if no plan file.)
+- **Plan Alignment**: Does the implementation correctly follow the plan? Note any deviations. (Skip if no plan was provided.)
 
 Rules:
 - Reference exact files and line numbers/hunks in the diff.
@@ -1212,11 +1206,11 @@ Then ask the user (via `AskUserQuestion`):
 
 ## Important Rules
 
-1. **Codex reads the diff and plan itself** - Do NOT paste diff content or plan content into the prompt. Just give Codex the plan file path and instruct it to run `git diff`.
-2. **Only send what Codex can't access** - The prompt should contain: file paths, user's original request, session context. NOT: diffs, file contents, code snippets.
-3. **Always `git add -N` untracked files first** - So new files appear in `git diff`.
-4. **Always use heredoc (`<<'EOF'`) for prompts** - Heredoc with single-quoted delimiter prevents shell expansion.
-5. **Always provide the plan file path** - So Codex can cross-reference implementation against intent. If no plan exists, explicitly state that.
+1. **Codex reads the diff itself** - Do NOT paste diff content into the prompt. Just instruct Codex to run `git diff`.
+2. **Embed the plan directly in the prompt** - Extract the plan from the conversation and include it inline in the Codex prompt. Do NOT reference external plan files.
+3. **Only send what Codex can't access** - The prompt should contain: the plan (from conversation), user's original request, session context. NOT: diffs, file contents, code snippets.
+4. **Always `git add -N` untracked files first** - So new files appear in `git diff`.
+5. **Always use heredoc (`<<'EOF'`) for prompts** - Heredoc with single-quoted delimiter prevents shell expansion.
 6. **No `-m` flag** - Always use Codex's default model.
 7. **Resume by thread ID** - Use the `thread_id` from the `THREAD_ID:` line of poll completed output for subsequent rounds.
 8. **Handle repos with no HEAD** - Before running `git diff HEAD`, check `git rev-parse --verify HEAD`. If HEAD doesn't exist, use `git diff --cached` + `git diff` instead.
