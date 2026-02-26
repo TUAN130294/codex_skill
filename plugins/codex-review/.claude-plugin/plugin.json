@@ -1,7 +1,7 @@
 {
   "name": "codex-review",
   "description": "Claude Code skills for adversarial code review, plan review, and peer thinking debates with OpenAI Codex CLI",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "author": {
     "name": "lploc94",
     "url": "https://github.com/lploc94"
