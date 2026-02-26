@@ -1,0 +1,9 @@
+{
+  "name": "codex-review",
+  "version": "2.0.0",
+  "skills": [
+    "codex-plan-review",
+    "codex-impl-review",
+    "codex-think-about"
+  ]
+}

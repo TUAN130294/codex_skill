@@ -4,5 +4,8 @@
 # Codex review runtime artifacts
 .codex-review/
 
+# Node
+node_modules/
+
 # macOS
 .DS_Store

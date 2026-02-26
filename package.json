@@ -1,0 +1,30 @@
+{
+  "name": "codex-skill",
+  "version": "2.0.0",
+  "description": "Install and manage codex-review skills for Claude Code",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "skill-packs/",
+    "README.md",
+    "CLAUDE.md"
+  ],
+  "bin": {
+    "codex-skill": "./bin/codex-skill.js"
+  },
+  "scripts": {
+    "check": "node ./bin/codex-skill.js --help"
+  },
+  "keywords": [
+    "claude-code",
+    "skills",
+    "codex",
+    "review",
+    "cli"
+  ]
+}
