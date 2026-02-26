@@ -20,7 +20,7 @@ RUNNER="{{RUNNER_PATH}}"
 ```
 
 ## Workflow
-1. Gather factual context only (no premature opinion).
+1. **Ask user** to choose reasoning effort level: `low`, `medium`, `high`, or `xhigh` (default: `high`). Gather factual context only (no premature opinion). Set `EFFORT` to their choice.
 2. Build round-1 prompt from `references/prompts.md`.
 3. Start Codex thread with `node "$RUNNER" start --working-dir "$PWD" --effort "$EFFORT"`.
 4. Poll with adaptive intervals (Round 1: 60s/60s/30s/15s..., Round 2+: 30s/15s...). Report Codex status to user after each poll.

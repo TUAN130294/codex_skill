@@ -46,6 +46,8 @@ STATE_OUTPUT=$(printf '%s' "$REBUTTAL_PROMPT" | node "$RUNNER" start \
   --working-dir "$PWD" --thread-id "$THREAD_ID" --effort "$EFFORT")
 ```
 
+**→ Go back to step 3 (Poll).** After poll completes, repeat step 4 (Parse) and check stop conditions below. If not met, resume again (step 5). Continue this loop until a stop condition is reached.
+
 ## 6) Stop Conditions
 - `VERDICT: APPROVE`.
 - Stalemate (same unresolved points for two consecutive rounds).

@@ -45,6 +45,8 @@ STATE_OUTPUT=$(printf '%s' "$REBUTTAL_PROMPT" | node "$RUNNER" start \
   --working-dir "$PWD" --thread-id "$THREAD_ID" --effort "$EFFORT")
 ```
 
+**→ Go back to step 3 (Poll).** After poll completes, repeat step 4 (Apply/Rebut) and check completion criteria below. If not met, resume again (step 5). Continue this loop until a completion criterion is reached.
+
 ## 6) Completion Criteria
 - Codex returns `VERDICT: APPROVE`.
 - Or user accepts a documented stalemate.

@@ -20,7 +20,7 @@ RUNNER="{{RUNNER_PATH}}"
 ```
 
 ## Workflow
-1. Gather diff context (`git status`, `git diff`, optional plan file).
+1. **Ask user** to choose review effort level: `low`, `medium`, `high`, or `xhigh` (default: `high`). Gather diff context (`git status`, `git diff`, optional plan file). Set `EFFORT` to their choice.
 2. Build prompt from `references/prompts.md` (`Implementation Review Prompt`).
 3. Start round 1 with `node "$RUNNER" start --working-dir "$PWD" --effort "$EFFORT"`.
 4. Poll with adaptive intervals (Round 1: 60s/60s/30s/15s..., Round 2+: 30s/15s...). Report Codex status to user after each poll.
