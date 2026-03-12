@@ -40,9 +40,9 @@ const skillsRoot = path.join(os.homedir(), '.claude', 'skills');
 const runnerDir = path.join(skillsRoot, 'codex-review');
 const runnerPath = path.join(runnerDir, 'scripts', 'codex-runner.js');
 
-const SKILLS = ['codex-plan-review', 'codex-impl-review', 'codex-think-about', 'codex-commit-review', 'codex-pr-review', 'codex-parallel-review', 'codex-codebase-review', 'codex-security-review'];
+const SKILLS = ['codex-plan-review', 'codex-impl-review', 'codex-think-about', 'codex-commit-review', 'codex-pr-review', 'codex-parallel-review', 'codex-codebase-review', 'codex-security-review', 'codex-auto-review'];
 
-// All directories managed by this installer (runner + 8 skills)
+// All directories managed by this installer (runner + 9 skills)
 const MANAGED_DIRS = ['codex-review', ...SKILLS];
 
 // ---------------------------------------------------------------------------
@@ -341,7 +341,7 @@ try {
   console.log('');
   console.log('codex-review skills installed successfully!');
   console.log(`  Runner:  ${runnerDir}`);
-  console.log(`  Skills:  ${skillsRoot}/codex-{plan-review,impl-review,think-about,commit-review,pr-review,parallel-review,codebase-review,security-review}`);
+  console.log(`  Skills:  ${skillsRoot}/codex-{plan-review,impl-review,think-about,commit-review,pr-review,parallel-review,codebase-review,security-review,auto-review}`);
   console.log('');
   console.log('Skills available in Claude Code:');
   console.log('  /codex-plan-review     — debate plans before implementation');
