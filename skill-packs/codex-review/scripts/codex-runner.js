@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 
 // --- Constants ---
-const CODEX_RUNNER_VERSION = 11;
+const CODEX_RUNNER_VERSION = 12;
 
 const EXIT_SUCCESS = 0;
 const EXIT_ERROR = 1;
@@ -933,6 +933,22 @@ function writeReviewOutputs(stateDir, markdownOutput, metadata, format) {
   if (format === "json" || format === "sarif" || format === "both") {
     try {
       const canonicalJSON = parseToCanonicalJSON(markdownOutput, metadata);
+      
+      // Apply deduplication to findings (preserves higher confidence)
+      if (canonicalJSON.findings && canonicalJSON.findings.length > 0) {
+        const originalCount = canonicalJSON.findings.length;
+        canonicalJSON.findings = deduplicateFindings(canonicalJSON.findings);
+        const deduplicatedCount = canonicalJSON.findings.length;
+        
+        if (originalCount !== deduplicatedCount) {
+          process.stderr.write(`[deduplication] Merged ${originalCount - deduplicatedCount} duplicate findings (${originalCount} → ${deduplicatedCount})\n`);
+        }
+        
+        // Update summary counts after deduplication
+        if (canonicalJSON.review && canonicalJSON.review.summary) {
+          canonicalJSON.review.summary.issues_found = canonicalJSON.findings.filter(f => f.type === 'issue').length;
+        }
+      }
 
       // Write canonical JSON
       if (format === "json" || format === "both") {
@@ -984,6 +1000,144 @@ function writeReviewOutputs(stateDir, markdownOutput, metadata, format) {
       }
     }
   }
+}
+
+/**
+ * Deduplicate findings by merging similar issues while preserving higher confidence.
+ * Only deduplicates actionable "issue" type findings with matching file + problem.
+ * 
+ * @param {Array} findings - Array of finding objects from canonical JSON
+ * @returns {Array} Deduplicated findings with merged metadata
+ */
+function deduplicateFindings(findings) {
+  if (!findings || findings.length === 0) return [];
+  
+  const groups = new Map(); // Key: type|file|problem, Value: array of findings
+  const deduplicated = [];
+  
+  // Helper: normalize text for comparison
+  function normalizeText(text) {
+    return String(text || "")
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9\s]/g, "")
+      .replace(/\s+/g, " ");
+  }
+  
+  // Helper: score finding detail level (for selecting most detailed)
+  function scoreDetail(finding) {
+    let score = 0;
+    if (finding.location?.file) score += 10;
+    if (finding.location?.start_line) score += 5;
+    if (finding.problem) score += 20;
+    if (finding.evidence?.code_snippet) score += 15;
+    if (finding.suggested_fix?.code) score += 25;
+    if (finding.suggested_fix?.description) score += 10;
+    return score;
+  }
+  
+  // Group findings by type + file + problem (only for actionable issues)
+  for (const finding of findings) {
+    // Only deduplicate "issue" type findings
+    if (finding.type !== "issue") {
+      deduplicated.push(finding);
+      continue;
+    }
+    
+    const fileKey = finding.location?.file?.toLowerCase().trim();
+    const problemKey = normalizeText(finding.problem);
+    
+    // If missing file or problem, keep as-is (no dedup)
+    if (!fileKey || !problemKey) {
+      deduplicated.push(finding);
+      continue;
+    }
+    
+    const key = `${finding.type}|${fileKey}|${problemKey}`;
+    
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key).push(finding);
+  }
+  
+  // Merge each group
+  const confidenceOrder = { high: 3, medium: 2, low: 1 };
+  const severityOrder = { critical: 5, high: 4, error: 4, medium: 3, warning: 3, low: 2, note: 1, info: 0 };
+  
+  for (const [_, group] of groups.entries()) {
+    if (group.length === 1) {
+      deduplicated.push(group[0]);
+      continue;
+    }
+    
+    // Sort by confidence (high > medium > low), then by severity
+    group.sort((a, b) => {
+      const confA = confidenceOrder[a.confidence] || 0;
+      const confB = confidenceOrder[b.confidence] || 0;
+      if (confA !== confB) return confB - confA;
+      
+      const sevA = severityOrder[normalizeSeverity(a.severity)] || 0;
+      const sevB = severityOrder[normalizeSeverity(b.severity)] || 0;
+      return sevB - sevA;
+    });
+    
+    // Start with highest confidence finding
+    const bestByConfidence = group[0];
+    const merged = { ...bestByConfidence };
+    
+    // Find most detailed finding
+    const mostDetailed = group
+      .slice()
+      .sort((a, b) => scoreDetail(b) - scoreDetail(a))[0];
+    
+    // Preserve detail fields from most detailed finding if missing in winner
+    for (const field of ["location", "problem", "evidence", "suggested_fix", "category"]) {
+      if (merged[field] == null && mostDetailed[field] != null) {
+        merged[field] = mostDetailed[field];
+      }
+    }
+    
+    // Aggregate external_refs from all findings
+    const allRefs = new Map();
+    for (const finding of group) {
+      if (finding.external_refs) {
+        for (const ref of finding.external_refs) {
+          const key = `${ref.type}:${ref.id || ref.url}`;
+          if (!allRefs.has(key)) {
+            allRefs.set(key, ref);
+          }
+        }
+      }
+    }
+    if (allRefs.size > 0) {
+      merged.external_refs = Array.from(allRefs.values());
+    }
+    
+    // Aggregate related findings
+    const allRelated = new Set();
+    for (const finding of group) {
+      if (finding.related) {
+        for (const rel of finding.related) {
+          allRelated.add(rel);
+        }
+      }
+    }
+    if (allRelated.size > 0) {
+      merged.related = Array.from(allRelated);
+    }
+    
+    // Add metadata about deduplication
+    merged.deduplication_info = {
+      merged_count: group.length,
+      confidence_levels: group.map(f => f.confidence).filter((v, i, a) => a.indexOf(v) === i),
+      sources: group.map(f => f.id).filter(Boolean)
+    };
+    
+    deduplicated.push(merged);
+  }
+  
+  return deduplicated;
 }
 
 // ============================================================
