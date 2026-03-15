@@ -221,15 +221,15 @@ try {
         '',
         'When the user is working on code changes, **proactively suggest** the appropriate codex-review skill based on context:',
         '',
-        '| Context | Suggested Skill | Trigger |',
-        '|---------|----------------|---------|',
-        '| Uncommitted changes (staged/unstaged) | `/codex-impl-review` | Before committing |',
-        '| Feature branch with commits | `/codex-pr-review` | Before creating/merging PR |',
-        '| Plan/design document created or modified | `/codex-plan-review` | After writing plan |',
-        '| Auth, SQL, crypto, secrets, user input code | `/codex-security-review` | When security-sensitive code detected |',
-        '| Large codebase (50+ files) needing review | `/codex-codebase-review` | On request for full review |',
-        '| Commit message drafted | `/codex-commit-review` | Before finalizing commit |',
-        '| Technical question or architecture debate | `/codex-think-about` | On design discussions |',
+        '| Context | Suggested Skill | Trigger | Note |',
+        '|---------|----------------|---------|------|',
+        '| Uncommitted changes (staged/unstaged) | `/codex-impl-review` | Before committing | |',
+        '| Feature branch with commits | `/codex-pr-review` | Before creating/merging PR | |',
+        '| Plan/design document created or modified | `/codex-plan-review` | After writing plan | |',
+        '| Auth, SQL, crypto, secrets, user input code | `/codex-security-review` | When security-sensitive code detected | Requires `-full` |',
+        '| Large codebase (50+ files) needing review | `/codex-codebase-review` | On request for full review | Requires `-full` |',
+        '| Commit message drafted | `/codex-commit-review` | Before finalizing commit | |',
+        '| Technical question or architecture debate | `/codex-think-about` | On design discussions | |',
         '',
         '**Rules:**',
         '- Always ask the user before running a review skill — never auto-run without confirmation',
@@ -244,17 +244,24 @@ try {
       let existing = '';
       try {
         existing = fs.readFileSync(claudeMdPath, 'utf8');
-      } catch {
-        // File doesn't exist yet — start fresh
+      } catch (readErr) {
+        if (readErr?.code === 'ENOENT') {
+          existing = '';
+        } else {
+          throw readErr; // Permission error, etc. — let outer catch handle
+        }
       }
 
       const startIdx = existing.indexOf(START_MARKER);
       const endIdx = existing.indexOf(END_MARKER);
 
       let updated;
-      if (startIdx !== -1 && endIdx !== -1) {
+      if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
         // Replace existing block (idempotent)
         updated = existing.slice(0, startIdx) + guidanceBlock + existing.slice(endIdx + END_MARKER.length);
+      } else if (startIdx !== -1 || endIdx !== -1) {
+        // Partial/corrupt markers — warn and skip to avoid data corruption
+        throw new Error('Found partial codex-auto-review markers in ~/.claude/CLAUDE.md — remove them manually and re-run');
       } else {
         // Append to end
         const separator = existing.length > 0 && !existing.endsWith('\n') ? '\n\n' : existing.length > 0 ? '\n' : '';
