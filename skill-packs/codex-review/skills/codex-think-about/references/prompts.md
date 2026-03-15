@@ -20,6 +20,16 @@
 | `{CONTINUE_OR_CONSENSUS_OR_STALEMATE}` | Debate status from step 4 | Yes |
 | `{OUTPUT_FORMAT}` | Copy the entire fenced code block from `references/output-format.md` | Yes |
 
+### Claude Independent Analysis Placeholders
+
+| Placeholder | Source | Required | Default |
+|-------------|--------|----------|---------|
+| `{QUESTION}` | Same as Round 1 | Yes | — |
+| `{PROJECT_CONTEXT}` | Same as Round 1 | No | "Not specified — infer from codebase" |
+| `{RELEVANT_FILES}` | Same as Round 1 | No | "None specified" |
+| `{CONSTRAINTS}` | Same as Round 1 | No | "None specified" |
+| `{CLAUDE_ANALYSIS_FORMAT}` | Copy from `references/claude-analysis-template.md` | Yes | — |
+
 ---
 
 ## Round 1 Prompt
@@ -77,6 +87,45 @@ For each factual claim, include the source URL in your output.
 
 ## Required Output Format
 {OUTPUT_FORMAT}
+```
+
+## Claude Independent Analysis Prompt
+
+This prompt is for Claude's internal use during Step 2.5. NOT sent to Codex.
+
+```
+## Your Task
+You are analyzing a question independently. Another AI (Codex) is analyzing the
+same question separately with web research access — you will NOT see their
+findings until later. Form your own position first.
+
+## INFORMATION BARRIER
+- You have NOT seen Codex's output. Do NOT attempt to read it.
+- Form your OWN conclusions based on your knowledge and your own research.
+- Commit to specific positions — do not hedge everything.
+- You WILL have the opportunity to revise after seeing Codex's perspective.
+
+## Question
+{QUESTION}
+
+## Project Context
+{PROJECT_CONTEXT}
+
+## Relevant Files
+{RELEVANT_FILES}
+
+## Known Constraints
+{CONSTRAINTS}
+
+## Instructions
+1. Analyze using your own knowledge.
+2. OPTIONALLY use MCP tools (web_search, context7, ask_internet) to research.
+3. Separate facts (with sources) from analysis/opinion.
+4. Take clear positions. "It depends" only when genuinely context-dependent.
+5. Write in the required format below.
+
+## Required Output Format
+{CLAUDE_ANALYSIS_FORMAT}
 ```
 
 ## Round 2+ Response Prompt

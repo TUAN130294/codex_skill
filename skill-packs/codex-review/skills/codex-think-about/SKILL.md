@@ -22,9 +22,12 @@ RUNNER="{{RUNNER_PATH}}"
 ## Workflow
 1. **Ask user** to choose reasoning effort level: `low`, `medium`, `high`, or `xhigh` (default: `high`). Gather factual context only (no premature opinion). Set `EFFORT`.
 2. Build round-1 prompt from `references/prompts.md`.
-3. Start Codex thread with web access: `node "$RUNNER" start --working-dir "$PWD" --effort "$EFFORT" --sandbox danger-full-access`.
-4. Poll with adaptive intervals (Round 1: 90s/60s/30s/15s..., Round 2+: 45s/30s/15s...). After each poll, report **specific activities** from poll output (e.g. which files Codex is reading, what URLs it is fetching, what topic it is analyzing). See `references/workflow.md` for parsing guide. NEVER report generic "Codex is running" — always extract concrete details.
-5. Claude responds with agree/disagree points and new perspectives.
+3. **Start Codex + Claude Independent Analysis (parallel)**:
+   a. Start Codex thread: `node "$RUNNER" start --working-dir "$PWD" --effort "$EFFORT" --sandbox danger-full-access`.
+   b. **Claude Independent Analysis (IMMEDIATELY, before polling)**: Analyze the question independently using own knowledge and optionally MCP tools. Follow the structured format in `references/claude-analysis-template.md`. Complete this BEFORE reading any Codex output. See `references/workflow.md` Step 2.5 for detailed instructions.
+   c. **INFORMATION BARRIER**: Do NOT read `$STATE_DIR/review.md` or interpret Codex's conclusions until Step 5. Poll activity telemetry (file reads, URLs, topics) is allowed for progress reporting.
+4. Poll Codex with adaptive intervals (Round 1: 90s/60s/30s/15s..., Round 2+: 45s/30s/15s...). After each poll, report **specific activities** from poll output. See `references/workflow.md` for parsing guide. NEVER report generic "Codex is running".
+5. **Cross-Analysis**: After Codex completes, compare Claude's independent analysis with Codex output. Identify genuine agreements, genuine disagreements, and unique perspectives from each side. See `references/workflow.md` Step 4.
 6. Resume via `--thread-id` and loop until consensus, stalemate, or hard cap (5 rounds).
 7. Present user-facing synthesis with agreements, disagreements, cited sources, and confidence.
 
@@ -40,6 +43,7 @@ RUNNER="{{RUNNER_PATH}}"
 - Execution loop: `references/workflow.md`
 - Prompt templates: `references/prompts.md`
 - Output contract: `references/output-format.md`
+- Claude analysis format: `references/claude-analysis-template.md`
 
 ## Rules
 - Keep roles as peers; no reviewer/implementer framing.
@@ -48,3 +52,4 @@ RUNNER="{{RUNNER_PATH}}"
 - Separate researched facts (with sources) from opinions.
 - Detect stalemate when arguments repeat with no new evidence.
 - End with clear recommendations, source list, and open questions.
+- **Information barrier**: Claude MUST complete its independent analysis (Step 3b) before reading Codex output. This prevents anchoring bias.

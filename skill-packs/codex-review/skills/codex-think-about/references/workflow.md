@@ -28,7 +28,32 @@ STATE_OUTPUT=$(printf '%s' "$PROMPT" | node "$RUNNER" start --working-dir "$PWD"
 STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
 ```
 
+**Do NOT poll yet.** Proceed immediately to Step 2.5.
+
+## 2.5) Claude Independent Analysis (BEFORE polling)
+
+**PURPOSE**: Form Claude's own position BEFORE seeing Codex's output. Prevents anchoring bias.
+
+**INFORMATION BARRIER**: MUST NOT read `$STATE_DIR/review.md`. Codex đang chạy background — để nó làm việc trong khi bạn suy nghĩ.
+
+**TIMING**: Giữa Start Codex (Step 2) và Poll (Step 3). Codex Round 1 thường mất 90-180s, Claude có đủ thời gian.
+
+### Instructions
+
+1. Read the Claude Independent Analysis Prompt from `references/prompts.md`.
+2. Replace placeholders (same values as Round 1 prompt): `{QUESTION}`, `{PROJECT_CONTEXT}`, `{RELEVANT_FILES}`, `{CONSTRAINTS}`.
+3. Replace `{CLAUDE_ANALYSIS_FORMAT}` by copying the entire fenced code block from `references/claude-analysis-template.md`.
+4. Analyze using own knowledge. MAY use MCP tools (web_search, context7, ask_internet) for research — source parity with Codex's web access.
+5. Write analysis in format from `references/claude-analysis-template.md`.
+6. **CRITICAL**: Analysis must be COMPLETE and FINAL before proceeding to Step 3. Commit to specific positions.
+
+### After Completing Analysis
+
+Store analysis internally (needed for Step 4 cross-analysis). Proceed to Step 3 (Poll).
+
 ## 3) Poll
+
+**BARRIER REMINDER**: Independent analysis đã hoàn tất ở Step 2.5. Khi polling, report Codex's *activities* nhưng KHÔNG interpret conclusions. Analysis đã locked.
 
 ```bash
 POLL_OUTPUT=$(node "$RUNNER" poll "$STATE_DIR")
@@ -73,16 +98,33 @@ Stop on `completed|failed|timeout|stalled`.
 2. Read Codex output: `cat "$STATE_DIR/review.md"`.
 3. Save for Round 2+: `THREAD_ID=<extracted id>`.
 
-## 4) Claude Response
+## 4) Cross-Analysis (Claude's Independent View vs Codex's Output)
+
 After `POLL:completed`:
-1. Read Codex output from `$STATE_DIR/review.md`.
-2. Parse Key Insights, Considerations, Recommendations, Sources, Open Questions, Confidence Level.
-3. Parse Suggested Status (advisory) — use as a signal but Claude makes the final status decision.
-4. List agreements with evidence.
-5. List disagreements with rebuttals.
-6. Add missing angles or new perspectives.
-7. Validate Sources table — note any claims lacking citations.
-8. Set status: `CONTINUE`, `CONSENSUS`, or `STALEMATE`. Consider Codex's Suggested Status but override if evidence warrants a different assessment.
+
+### 4a) Read Codex Output
+1. Read from `$STATE_DIR/review.md`.
+2. Parse Key Insights, Considerations, Recommendations, Sources, Open Questions, Confidence Level, Suggested Status.
+
+### 4b) Compare Positions (Side-by-Side)
+
+Classify mỗi topic/insight:
+
+| Classification | Meaning | Handle |
+|---------------|---------|--------|
+| **Genuine Agreement** | Cả hai independently đi đến cùng kết luận | Strong consensus signal |
+| **Genuine Disagreement** | Có opposing positions từ trước | Real debate point — defend with evidence |
+| **Claude-only Insight** | Claude thấy mà Codex không | Present as new perspective |
+| **Codex-only Insight** | Codex tìm được mà Claude không | Evaluate on merits — accept hoặc challenge |
+| **Same Direction, Different Depth** | Cả hai thấy issue nhưng one went deeper | Synthesize deeper analysis |
+
+### 4c) Build Response
+
+1. **Agreements**: Points cả hai independently converged. Strong signals vì không ai influence ai.
+2. **Disagreements**: Genuine disagreements. State Claude's independent position + why Codex's position doesn't change it (hoặc does — be honest).
+3. **New Perspectives**: Claude-only insights + evaluate Codex-only insights on merits.
+4. **Source Cross-validation**: Compare sources. Flag claims lacking citations.
+5. Set status: `CONTINUE`, `CONSENSUS`, or `STALEMATE`. Consider Codex's Suggested Status but override if evidence warrants a different assessment.
 
 ## 4.5) File Modification Guard
 
@@ -148,6 +190,8 @@ Clean up: `rm -rf "$FS_GUARD_DIR"` after round.
 5. Run cleanup (Step 8) to stop the Codex process.
 
 ## 5) Resume Round 2+
+
+**Note**: Từ Round 2 trở đi, information barrier không còn áp dụng — cả hai đã thấy positions của nhau. Debate tiếp tục bình thường.
 
 Build Round 2+ prompt from `references/prompts.md` (Response Prompt template):
 - Replace `{AGREED_POINTS}` with Claude's agreements from step 4.
