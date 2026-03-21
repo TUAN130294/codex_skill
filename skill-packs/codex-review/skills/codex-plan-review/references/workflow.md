@@ -60,14 +60,19 @@ Before starting Round 1:
 
 ## 2) Start Round 1
 ```bash
-STATE_OUTPUT=$(printf '%s' "$PROMPT" | node "$RUNNER" start --working-dir "$PWD" --effort "$EFFORT")
-STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
+INIT_OUTPUT=$(node "$RUNNER" init --skill-name codex-plan-review --working-dir "$PWD")
+SESSION_DIR=${INIT_OUTPUT#CODEX_SESSION:}
+
+START_OUTPUT=$(printf '%s' "$PROMPT" | node "$RUNNER" start "$SESSION_DIR" --effort "$EFFORT")
 ```
+
+**Validate init output:** Verify `INIT_OUTPUT` starts with `CODEX_SESSION:`. If not, report error.
+**Validate start output:** Verify `START_OUTPUT` starts with `CODEX_STARTED:`. If not, report error.
 
 ## 3) Poll
 
 ```bash
-POLL_OUTPUT=$(node "$RUNNER" poll "$STATE_DIR")
+POLL_OUTPUT=$(node "$RUNNER" poll "$SESSION_DIR")
 ```
 
 Adaptive intervals — start slow, speed up:
@@ -82,16 +87,14 @@ Adaptive intervals — start slow, speed up:
 - Poll 1: wait 30s
 - Poll 2+: wait 15s
 
-After each poll, parse the status lines and report **specific activities** to the user. NEVER say generic messages like "Codex is running" or "still waiting" — these provide no information.
+After each poll, report **specific activities** to the user using the `SUMMARY:` line from poll stdout. NEVER say generic messages like "Codex is running" or "still waiting" — these provide no information.
 
-**How to parse poll output for user reporting:**
-Poll output contains lines like `[Ns] Codex thinking: ...`, `[Ns] Codex running: ...`, `[Ns] Codex completed: ...`. Extract and summarize:
-- `Codex thinking: "**Some topic**"` → Report: "Codex is analyzing: {topic}"
-- `Codex running: /bin/zsh -lc 'cat plan.md'` → Report: "Codex is reading the plan file"
-- `Codex running: /bin/zsh -lc 'rg -n "pattern" ...'` → Report: "Codex is searching for `pattern` in the codebase"
-- Multiple completed commands → Summarize: "Codex has read {N} files, analyzing results"
+**Poll stdout format:**
+- Line 1: `POLL:{status}:{elapsed}[:{exit_code}:{details}]`
+- Line 2 (if completed): `THREAD_ID:{id}`
+- Line 2 (if running): `SUMMARY:{activity description}`
 
-**Report template:** "Codex [{elapsed}s]: {specific activity summary}" — always include elapsed time and concrete description of what Codex is doing or just did.
+**Report template:** `"Codex [{elapsed}s]: {summary}"` — read the SUMMARY line and report it directly to the user.
 
 Continue while status is `running`.
 Stop on `completed|failed|timeout|stalled`.
@@ -104,17 +107,20 @@ Stop on `completed|failed|timeout|stalled`.
 - Build rebuttal packet for disputed items.
 - Record the set of open (unresolved) ISSUE-{N} IDs for stalemate tracking.
 
+After parsing each round's review, append round summary to `$SESSION_DIR/rounds.json`:
+- Read existing rounds.json or start with empty array `[]`
+- Append: `{ "round": N, "elapsed_seconds": ..., "verdict": "...", "issues_found": ..., "issues_fixed": ..., "issues_disputed": ... }`
+- Write back to `$SESSION_DIR/rounds.json`
+
 ## 5) Resume (Round 2+)
 
 Build the rebuttal prompt from `references/prompts.md` (Rebuttal Prompt template). Replace all placeholders including `{PLAN_PATH}` so Codex re-reads the updated plan.
 
 ```bash
-STATE_OUTPUT=$(printf '%s' "$REBUTTAL_PROMPT" | node "$RUNNER" start \
-  --working-dir "$PWD" --thread-id "$THREAD_ID" --effort "$EFFORT")
-STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
+START_OUTPUT=$(printf '%s' "$REBUTTAL_PROMPT" | node "$RUNNER" resume "$SESSION_DIR" --effort "$EFFORT")
 ```
 
-**Update STATE_DIR** (each round creates a new state directory). Then **go back to step 3 (Poll).** After poll completes, repeat step 4 (Parse) and check stop conditions below. If not met, resume again (step 5). Continue this loop until a stop condition is reached.
+Then **go back to step 3 (Poll).** After poll completes, repeat step 4 (Parse) and check stop conditions below. If not met, resume again (step 5). Continue this loop until a stop condition is reached.
 
 ## 6) Stop Conditions
 - `VERDICT: APPROVE`.
@@ -155,22 +161,19 @@ Then present:
 
 ## 8) Cleanup
 ```bash
-node "$RUNNER" stop "$STATE_DIR"
+node "$RUNNER" stop "$SESSION_DIR"
 ```
-Remove the state directory and kill any remaining Codex/watchdog processes. Always run this step, even if the debate ended due to failure or timeout.
+Kill any remaining Codex/watchdog processes. Always run this step, even if the debate ended due to failure or timeout.
 
-## Session Output
+## Session Finalization
 
-After the final round completes (or after Round 1 for single-round skills), create a persistent session directory:
+After the final round completes, write session metadata to the session directory (review.md is already present from poll):
 
 ```bash
-SESSION_DIR=".codex-review/sessions/codex-plan-review-$(date +%s)-$$"
-mkdir -p "$SESSION_DIR"
-cp "$STATE_DIR/review.md" "$SESSION_DIR/review.md"
 cat > "$SESSION_DIR/meta.json" << METAEOF
 {
   "skill": "codex-plan-review",
-  "version": 14,
+  "version": 15,
   "effort": "$EFFORT",
   "rounds": ${ROUND_COUNT:-0},
   "verdict": "$FINAL_VERDICT",

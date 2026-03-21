@@ -30,13 +30,13 @@ RUNNER="{{RUNNER_PATH}}"
    - Announce: "Detected: mode=`$MODE`, effort=`medium`. Proceeding — reply to override."
    - Set `MODE` and `EFFORT`. For `draft` mode, ask for commit message text. For `last` mode, N=1 default.
 2. Run pre-flight checks (see `references/workflow.md` §1.5).
-3. Build Codex prompt + Claude analysis prompt from `references/prompts.md`, following the Placeholder Injection Guide. **Start Codex** (background) with `node "$RUNNER" start`.
-4. **Claude Independent Analysis** (BEFORE reading Codex output): Claude analyzes commit message(s) independently using format from `references/claude-analysis-template.md`. **INFORMATION BARRIER** — do NOT read `$STATE_DIR/review.md` until analysis is complete. See `references/workflow.md` Step 2.5.
+3. Build Codex prompt + Claude analysis prompt from `references/prompts.md`, following the Placeholder Injection Guide. **Start Codex** (background) with `node "$RUNNER" init --skill-name codex-commit-review --working-dir "$PWD"` then `node "$RUNNER" start "$SESSION_DIR"`.
+4. **Claude Independent Analysis** (BEFORE reading Codex output): Claude analyzes commit message(s) independently using format from `references/claude-analysis-template.md`. **INFORMATION BARRIER** — do NOT read `$SESSION_DIR/review.md` until analysis is complete. See `references/workflow.md` Step 2.5.
 5. Poll Codex with adaptive intervals (Round 1: 60s/60s/30s/15s..., Round 2+: 30s/15s...). After each poll, report **specific activities** from poll output. See `references/workflow.md` for parsing guide. NEVER report generic "Codex is running" — always extract concrete details.
 6. **Cross-Analysis**: Compare Claude's FINDING-{N} with Codex's ISSUE-{N}. Identify genuine agreements, genuine disagreements, and unique findings from each side. See `references/workflow.md` Step 4.
-7. Resume debate via `--thread-id` until consensus, stalemate, or hard cap (5 rounds).
+7. Resume debate via `node "$RUNNER" resume "$SESSION_DIR"` until consensus, stalemate, or hard cap (5 rounds).
 8. Present final consensus report with agreements, disagreements, and both sides' overall assessments. **NEVER propose revised commit messages.**
-9. Cleanup: `node "$RUNNER" stop "$STATE_DIR"`.
+9. Cleanup: `node "$RUNNER" stop "$SESSION_DIR"`.
 
 ### Effort Level Guide
 | Level    | Depth             | Best for                        | Typical time |

@@ -146,15 +146,17 @@ Include:
 
 #### 4b) Start Codex
 ```bash
-STATE_OUTPUT=$(printf '%s' "$CHUNK_PROMPT" | node "$RUNNER" start --working-dir "$PWD" --effort "$EFFORT")
-STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
+INIT_OUTPUT=$(node "$RUNNER" init --skill-name codex-codebase-review --working-dir "$PWD")
+CHUNK_SESSION_DIR=${INIT_OUTPUT#CODEX_SESSION:}
+
+START_OUTPUT=$(printf '%s' "$CHUNK_PROMPT" | node "$RUNNER" start "$CHUNK_SESSION_DIR" --effort "$EFFORT")
 ```
 
-Track STATE_DIR in a list for cleanup.
+Track CHUNK_SESSION_DIR in a list for cleanup.
 
 #### 4c) Poll
 ```bash
-POLL_OUTPUT=$(node "$RUNNER" poll "$STATE_DIR")
+POLL_OUTPUT=$(node "$RUNNER" poll "$CHUNK_SESSION_DIR")
 ```
 
 Adaptive intervals:
@@ -163,11 +165,8 @@ Adaptive intervals:
 - Poll 3: wait 30s
 - Poll 4+: wait 15s
 
-Parse poll output for user reporting:
-- `Codex thinking: "topic"` → Report: "Codex analyzing: {topic}"
-- `Codex running: ...cat src/foo.ts...` → Report: "Codex reading `src/foo.ts`"
-
-**Report template:** "Chunk {N}/{TOTAL} [{name}] — Codex [{elapsed}s]: {activity}"
+After each poll, report using `SUMMARY:` line from poll stdout.
+**Report template:** `"Chunk {N}/{TOTAL} [{name}] — Codex [{elapsed}s]: {summary}"`
 
 Continue while `POLL:running`. Stop on `completed|failed|timeout|stalled`.
 
@@ -188,7 +187,7 @@ Chunk {N}/{TOTAL} [{name}]: {issue_count} issues ({C}C/{H}H/{M}M/{L}L)
 
 #### 4g) Cleanup Chunk
 ```bash
-node "$RUNNER" stop "$STATE_DIR"
+node "$RUNNER" stop "$CHUNK_SESSION_DIR"
 ```
 
 ### Parallel Mode (parallel_factor=2-3)
@@ -199,14 +198,14 @@ Example with 7 chunks, factor 2: [1,2], [3,4], [5,6], [7].
 
 #### Per Batch
 1. Start ALL chunks in batch simultaneously (multiple `node "$RUNNER" start` calls).
-2. Poll round-robin across all active STATE_DIRs.
+2. Poll round-robin across all active CHUNK_SESSION_DIRs.
 3. Context propagation occurs BETWEEN batches only (not within a batch).
 4. After all chunks in batch complete → extract context → proceed to next batch.
 
 #### Polling Round-Robin
 ```
 while any_chunk_running:
-  for each active STATE_DIR:
+  for each active CHUNK_SESSION_DIR:
     poll once
     if completed/failed → mark done, parse results
   sleep interval (same adaptive schedule)
@@ -250,11 +249,13 @@ Include CROSS-{N} findings for Codex to verify.
 Standard start-poll-stop cycle. Same as chunk review.
 
 ```bash
-STATE_OUTPUT=$(printf '%s' "$VALIDATION_PROMPT" | node "$RUNNER" start --working-dir "$PWD" --effort "$EFFORT")
-STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
+INIT_OUTPUT=$(node "$RUNNER" init --skill-name codex-codebase-review --working-dir "$PWD")
+VALIDATION_SESSION_DIR=${INIT_OUTPUT#CODEX_SESSION:}
+
+START_OUTPUT=$(printf '%s' "$VALIDATION_PROMPT" | node "$RUNNER" start "$VALIDATION_SESSION_DIR" --effort "$EFFORT")
 ```
 
-Track STATE_DIR for cleanup.
+Track VALIDATION_SESSION_DIR for cleanup.
 
 ### 6c) Parse Responses
 Codex returns `RESPONSE-{N}` blocks:
@@ -305,15 +306,45 @@ Codex returns `RESPONSE-{N}` blocks:
 | **Total** | **{N}** | **{L}** | **{I}** | {C} | {H} | {M} | {L} | {T} |
 ```
 
+## 7.5) Session Finalization
+
+Create a master session directory to store the synthesized report:
+
+```bash
+INIT_OUTPUT=$(node "$RUNNER" init --skill-name codex-codebase-review --working-dir "$PWD")
+MASTER_SESSION_DIR=${INIT_OUTPUT#CODEX_SESSION:}
+
+# Write synthesized report
+# (The final report markdown from §7 should be written to $MASTER_SESSION_DIR/review.md)
+
+cat > "$MASTER_SESSION_DIR/meta.json" << METAEOF
+{
+  "skill": "codex-codebase-review",
+  "version": 15,
+  "effort": "$EFFORT",
+  "chunks_total": ${TOTAL_CHUNKS:-0},
+  "chunks_completed": ${COMPLETED_CHUNKS:-0},
+  "total_issues": ${TOTAL_ISSUES:-0},
+  "cross_cutting_findings": ${CROSS_FINDINGS:-0},
+  "timing": { "total_seconds": ${ELAPSED_SECONDS:-0} },
+  "chunk_sessions": [${CHUNK_SESSION_LIST}],
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+METAEOF
+echo "Master session saved to: $MASTER_SESSION_DIR"
+```
+
+Chunk sessions are preserved individually for traceability. Report `$MASTER_SESSION_DIR` path to the user.
+
 ## 8) Cleanup
 
 ```bash
-for STATE_DIR in "${ALL_STATE_DIRS[@]}"; do
-  node "$RUNNER" stop "$STATE_DIR"
+for SESSION_DIR in "${ALL_SESSION_DIRS[@]}"; do
+  node "$RUNNER" stop "$SESSION_DIR"
 done
 ```
 
-Stop ALL tracked STATE_DIRs. Always run regardless of outcome (success, failure, timeout, partial).
+Stop ALL tracked session directories. Always run regardless of outcome (success, failure, timeout, partial).
 
 ## 9) Error Handling
 

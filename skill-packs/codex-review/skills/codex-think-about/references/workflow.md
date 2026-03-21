@@ -20,8 +20,10 @@
 Set `ROUND=1`.
 
 ```bash
-STATE_OUTPUT=$(printf '%s' "$PROMPT" | node "$RUNNER" start --working-dir "$PWD" --effort "$EFFORT" --sandbox danger-full-access)
-STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
+INIT_OUTPUT=$(node "$RUNNER" init --skill-name codex-think-about --working-dir "$PWD")
+SESSION_DIR=${INIT_OUTPUT#CODEX_SESSION:}
+
+START_OUTPUT=$(printf '%s' "$PROMPT" | node "$RUNNER" start "$SESSION_DIR" --effort "$EFFORT" --sandbox danger-full-access)
 ```
 
 **Do NOT poll yet.** Proceed immediately to Step 2.5.
@@ -30,7 +32,7 @@ STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
 
 **PURPOSE**: Form Claude's own position BEFORE seeing Codex's output. Prevents anchoring bias.
 
-**INFORMATION BARRIER**: MUST NOT read `$STATE_DIR/review.md`. Codex đang chạy background — để nó làm việc trong khi bạn suy nghĩ.
+**INFORMATION BARRIER**: MUST NOT read `$SESSION_DIR/review.md`. Codex đang chạy background — để nó làm việc trong khi bạn suy nghĩ.
 
 **TIMING**: Giữa Start Codex (Step 2) và Poll (Step 3). Codex Round 1 thường mất 90-180s, Claude có đủ thời gian.
 
@@ -52,7 +54,7 @@ Store analysis internally (needed for Step 4 cross-analysis). Proceed to Step 3 
 **BARRIER REMINDER**: Independent analysis đã hoàn tất ở Step 2.5. Khi polling, report Codex's *activities* nhưng KHÔNG interpret conclusions. Analysis đã locked.
 
 ```bash
-POLL_OUTPUT=$(node "$RUNNER" poll "$STATE_DIR")
+POLL_OUTPUT=$(node "$RUNNER" poll "$SESSION_DIR")
 ```
 
 Adaptive intervals — start slow, speed up (longer than other skills due to web requests):
@@ -68,38 +70,31 @@ Adaptive intervals — start slow, speed up (longer than other skills due to web
 - Poll 2: wait 30s
 - Poll 3+: wait 15s
 
-After each poll, parse the status lines and report **specific activities** to the user. NEVER say generic messages like "Codex is running" or "still waiting" — these provide no information.
+After each poll, report **specific activities** to the user using the `SUMMARY:` line from poll stdout.
 
-**Poll output parsing guide:**
+**Poll stdout format:**
+- Line 1: `POLL:{status}:{elapsed}[:{exit_code}:{details}]`
+- Line 2 (if completed): `THREAD_ID:{id}`
+- Line 2 (if running): `SUMMARY:{activity description}`
 
-| Poll line pattern | Report to user |
-|-------------------|---------------|
-| `Codex thinking: "**topic**"` | Codex analyzing: {topic} |
-| `Codex running: ... 'git diff ...'` | Codex reading repo diff |
-| `Codex running: ... 'cat src/foo.ts'` | Codex reading file `src/foo.ts` |
-| `Codex running: ... 'rg -n "pattern" ...'` | Codex searching for `pattern` in code |
-| `Codex running: ... 'curl ...'` | Codex fetching web content |
-| Multiple curl commands completed | Codex researched {N} web sources |
-| Multiple completed commands | Codex read {N} files, analyzing results |
-| `Codex changed: <path> (<kind>)` | **WARNING: Codex modified file `<path>`** — see Step 4.5 |
-| `Codex running: ... 'wget ...'` | **WARNING: wget detected** — may write files, monitor Step 4.5 |
+**Report template:** `"Codex [{elapsed}s]: {summary}"` — read the SUMMARY line and report it directly.
 
-**Report template:** "Codex [{elapsed}s]: {specific activity summary}" — always include elapsed time and concrete description.
+**WARNING notes:**
+- `Codex changed: <path> (<kind>)` → **WARNING: Codex modified file `<path>`** — see Step 4.5
+- `wget` detected in activities → **WARNING: wget detected** — may write files, monitor Step 4.5
 
 Continue while status is `running`.
 Stop on `completed|failed|timeout|stalled`.
 
 **On `POLL:completed`:**
-1. Extract thread ID from poll output: look for `THREAD_ID:<id>` line.
-2. Read Codex output: `cat "$STATE_DIR/review.md"`.
-3. Save for Round 2+: `THREAD_ID=<extracted id>`.
+1. Read Codex output: `cat "$SESSION_DIR/review.md"`.
 
 ## 4) Cross-Analysis (Claude's Independent View vs Codex's Output)
 
 After `POLL:completed`:
 
 ### 4a) Read Codex Output
-1. Read from `$STATE_DIR/review.md`.
+1. Read from `$SESSION_DIR/review.md`.
 2. Parse Key Insights, Considerations, Recommendations, Sources, Open Questions, Confidence Level, Suggested Status.
 
 ### 4b) Compare Positions (Side-by-Side)
@@ -121,6 +116,11 @@ Classify mỗi topic/insight:
 3. **New Perspectives**: Claude-only insights + evaluate Codex-only insights on merits.
 4. **Source Cross-validation**: Compare sources. Flag claims lacking citations.
 5. Set status: `CONTINUE`, `CONSENSUS`, or `STALEMATE`. Consider Codex's Suggested Status but override if evidence warrants a different assessment.
+
+After parsing each round's analysis, append round summary to `$SESSION_DIR/rounds.json`:
+- Read existing rounds.json or start with empty array `[]`
+- Append: `{ "round": N, "elapsed_seconds": ..., "verdict": "...", "insights_count": ..., "agreed": ..., "disagreed": ... }`
+- Write back to `$SESSION_DIR/rounds.json`
 
 ## 4.5) File Modification Guard
 
@@ -147,7 +147,7 @@ Compare `BASELINE` vs `CURRENT`. If there are NEW lines in `CURRENT` that were n
 Before starting each round, create a baseline snapshot using a portable method. Since `find -printf` is GNU-only (not available on macOS/BSD), use a cross-platform approach:
 
 ```bash
-# Create a temp dir for baseline BEFORE starting the round (STATE_DIR doesn't exist yet)
+# Create a temp dir for baseline BEFORE starting the round (SESSION_DIR doesn't exist yet)
 FS_GUARD_DIR=$(mktemp -d)
 
 # Snapshot: list all files with mtime (portable across macOS and Linux)
@@ -157,16 +157,16 @@ FS_GUARD_DIR=$(mktemp -d)
   | sort > "$FS_GUARD_DIR/fs-baseline.txt"
 ```
 
-After starting the round (STATE_DIR now exists), copy baseline for reference:
+After starting the round (SESSION_DIR now exists), copy baseline for reference:
 ```bash
-cp "$FS_GUARD_DIR/fs-baseline.txt" "$STATE_DIR/fs-baseline.txt"
+cp "$FS_GUARD_DIR/fs-baseline.txt" "$SESSION_DIR/fs-baseline.txt"
 ```
 
 After round completes:
 ```bash
 ( find . -not -path './.codex-review/*' -type f -exec stat -f '%m %N' {} + 2>/dev/null \
   || find . -not -path './.codex-review/*' -type f -exec stat -c '%Y %n' {} + 2>/dev/null ) \
-  | sort > "$STATE_DIR/fs-after.txt"
+  | sort > "$SESSION_DIR/fs-after.txt"
 ```
 
 Compare by extracting paths and classifying changes:
@@ -196,12 +196,10 @@ Build Round 2+ prompt from `references/prompts.md` (Response Prompt template):
 - Replace `{CONTINUE_OR_CONSENSUS_OR_STALEMATE}` with status from step 4.
 - Replace `{OUTPUT_FORMAT}` by copying the entire fenced code block from `references/output-format.md`.
 
-**Note:** Sandbox mode (`danger-full-access`) persists automatically via `codex exec resume --thread-id`. Do NOT pass `--sandbox` on resume — it is inherited from the original thread.
+**Note:** Sandbox mode (`danger-full-access`) persists automatically via the Codex thread. Do NOT pass `--sandbox` on resume — it is inherited from the original thread.
 
 ```bash
-STATE_OUTPUT=$(printf '%s' "$RESPONSE_PROMPT" | node "$RUNNER" start \
-  --working-dir "$PWD" --thread-id "$THREAD_ID" --effort "$EFFORT")
-STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
+START_OUTPUT=$(printf '%s' "$RESPONSE_PROMPT" | node "$RUNNER" resume "$SESSION_DIR" --effort "$EFFORT")
 ```
 
 **→ Go back to step 3 (Poll).** Increment `ROUND` counter. After poll completes, repeat step 4 and check stop conditions. If `ROUND >= 5`, force final synthesis — do NOT resume. Otherwise, continue until a stop condition is reached.
@@ -239,18 +237,39 @@ STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
 ### Confidence Level
 - low | medium | high
 
+## 7.5) Session Finalization
+
+After the final synthesis is complete, write session metadata:
+
+```bash
+cat > "$SESSION_DIR/meta.json" << METAEOF
+{
+  "skill": "codex-think-about",
+  "version": 15,
+  "effort": "$EFFORT",
+  "rounds": ${ROUND_COUNT:-0},
+  "verdict": "$FINAL_VERDICT",
+  "timing": { "total_seconds": ${ELAPSED_SECONDS:-0} },
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+METAEOF
+echo "Session saved to: $SESSION_DIR"
+```
+
+Report `$SESSION_DIR` path to the user in the final summary.
+
 ## 8) Cleanup
 ```bash
-node "$RUNNER" stop "$STATE_DIR"
+node "$RUNNER" stop "$SESSION_DIR"
 ```
-Remove the state directory and kill any remaining Codex/watchdog processes. Always run this step, even if the debate ended due to failure or timeout.
+Always run this step, even if the debate ended due to failure or timeout.
 
 ## Error Handling
 
-Runner `poll` returns status via output string `POLL:<status>:<elapsed>[:exit_code:details]`. Normally exits 0, but may exit non-zero when state dir is invalid or I/O error — handle both cases:
+Runner `poll` returns status via output string `POLL:<status>:<elapsed>[:exit_code:details]`. Normally exits 0, but may exit non-zero when session dir is invalid or I/O error — handle both cases:
 
 **Parse POLL string (exit 0):**
-- `POLL:completed:...` → Success, read review.md from state dir.
+- `POLL:completed:...` → Success, read review.md from session dir.
 - `POLL:failed:...:3:...` → Turn failed. Retry once. If still fails, report error.
 - `POLL:timeout:...:2:...` → Timeout. Report partial results if review.md exists. Suggest retry with lower effort.
 - `POLL:stalled:...:4:...` → Stalled. Report partial results. Suggest lower effort.

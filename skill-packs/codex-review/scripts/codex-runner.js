@@ -4,7 +4,7 @@
  * codex-runner.js — Cross-platform runner for Codex CLI (Node.js stdlib only).
  *
  * Replaces codex-runner.sh + codex-runner.py in a single file.
- * Subcommands: version, start, poll, stop, _watchdog
+ * Subcommands: version, init, start, resume, poll, stop, _watchdog
  */
 
 import { spawn, spawnSync } from "node:child_process";
@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 
 // --- Constants ---
-const CODEX_RUNNER_VERSION = 11;
+const CODEX_RUNNER_VERSION = 12;
 
 const EXIT_SUCCESS = 0;
 const EXIT_ERROR = 1;
@@ -87,7 +87,11 @@ function launchCodex(stateDir, workingDir, timeoutS, threadId, effort, sandbox =
   let cwd;
 
   if (threadId) {
-    args = [...prependArgs, "exec", "--skip-git-repo-check", "--json", "resume", threadId];
+    args = [
+      ...prependArgs, "exec", "--skip-git-repo-check", "--json",
+      "--config", `model_reasoning_effort=${effort}`,
+      "resume", threadId, "-",
+    ];
     cwd = workingDir;
   } else {
     args = [
@@ -409,8 +413,10 @@ function parseJsonl(stateDir, lastLineCount, elapsed, processAlive, timeoutVal, 
     }
   }
 
-  // Parse NEW lines for progress events
+  // Parse NEW lines for progress events + build activity summary
   const stderrLines = [];
+  const activities = [];
+  let completedCount = 0;
   const newLines = allLines.slice(lastLineCount);
   for (const rawLine of newLines) {
     const line = rawLine.trim();
@@ -431,16 +437,37 @@ function parseJsonl(stateDir, lastLineCount, elapsed, processAlive, timeoutVal, 
       let text = item.text || "";
       if (text.length > 150) text = text.slice(0, 150) + "...";
       stderrLines.push(`[${elapsed}s] Codex thinking: ${text}`);
+      // Activity summary: shorter version
+      let summaryText = item.text || "";
+      if (summaryText.length > 100) summaryText = summaryText.slice(0, 100) + "...";
+      activities.push(`analyzing: ${summaryText}`);
     } else if (t === "item.started" && itemType === "command_execution") {
       stderrLines.push(`[${elapsed}s] Codex running: ${item.command || ""}`);
+      const cmd = item.command || "";
+      if (cmd.includes("cat ") || cmd.includes("head ")) {
+        const file = cmd.split(/\s+/).pop();
+        activities.push(`reading: ${file}`);
+      } else if (cmd.includes("rg ") || cmd.includes("grep ")) {
+        const match = cmd.match(/['"]([^'"]+)['"]/);
+        activities.push(`searching for: ${match ? match[1] : "pattern"}`);
+      } else if (cmd.includes("git diff")) {
+        activities.push("reading git diff");
+      } else {
+        activities.push(`running: ${cmd.slice(0, 80)}`);
+      }
     } else if (t === "item.completed" && itemType === "command_execution") {
       stderrLines.push(`[${elapsed}s] Codex completed: ${item.command || ""}`);
+      completedCount++;
     } else if (t === "item.completed" && itemType === "file_change") {
       for (const c of (item.changes || [])) {
         stderrLines.push(`[${elapsed}s] Codex changed: ${c.path || "?"} (${c.kind || "?"})`);
       }
     }
   }
+
+  const summary = activities.length > 0
+    ? activities.slice(-3).join("; ")
+    : (completedCount > 0 ? `completed ${completedCount} commands` : "thinking...");
 
   function sanitizeMsg(s) {
     if (s == null) return "unknown error";
@@ -455,7 +482,7 @@ function parseJsonl(stateDir, lastLineCount, elapsed, processAlive, timeoutVal, 
       stdoutParts.push(`POLL:failed:${elapsed}s:1:turn.completed but ${errorDetail}`);
     } else {
       atomicWrite(path.join(stateDir, "review.md"), reviewText);
-      
+
       stdoutParts.push(`POLL:completed:${elapsed}s`);
       stdoutParts.push(`THREAD_ID:${extractedThreadId}`);
     }
@@ -479,7 +506,7 @@ function parseJsonl(stateDir, lastLineCount, elapsed, processAlive, timeoutVal, 
     stdoutParts.push(`POLL:running:${elapsed}s`);
   }
 
-  return { stdoutOutput: stdoutParts.join("\n"), stderrLines };
+  return { stdoutOutput: stdoutParts.join("\n"), stderrLines, summary, extractedThreadId };
 }
 
 // ============================================================
@@ -507,8 +534,16 @@ function validateStateDir(stateDir) {
   try {
     const s = JSON.parse(fs.readFileSync(stateFile, "utf8"));
     const wd = fs.realpathSync(s.working_dir || "");
+    const sid = s.session_id || "";
     const rid = s.run_id || "";
-    const expected = path.join(wd, ".codex-review", "runs", rid);
+    let expected;
+    if (sid) {
+      expected = path.join(wd, ".codex-review", "sessions", sid);
+    } else if (rid) {
+      expected = path.join(wd, ".codex-review", "runs", rid);
+    } else {
+      return { dir: null, err: "state.json missing session_id/run_id" };
+    }
     const actual = fs.realpathSync(resolved);
     if (expected !== actual) {
       return { dir: null, err: "state directory path mismatch" };
@@ -560,43 +595,26 @@ function readStdinSync() {
 // Subcommands
 // ============================================================
 
-function cmdStart(argv) {
-  // Parse arguments
+function cmdInit(argv) {
   const { values } = parseArgs({
     args: argv,
     options: {
+      "skill-name": { type: "string" },
       "working-dir": { type: "string" },
-      effort: { type: "string", default: "high" },
-      "thread-id": { type: "string", default: "" },
-      timeout: { type: "string", default: "3600" },
-      sandbox: { type: "string", default: "read-only" },
     },
     strict: true,
   });
 
+  const skillName = values["skill-name"];
   const workingDir = values["working-dir"];
-  const effort = values.effort || "high";
-  const threadId = values["thread-id"] || "";
-  const timeout = parseInt(values.timeout || "3600", 10);
-  const sandbox = values.sandbox || "read-only";
 
-  const VALID_SANDBOXES = ["read-only", "workspace-write", "danger-full-access"];
-  if (!VALID_SANDBOXES.includes(sandbox)) {
-    process.stderr.write(`Error: --sandbox must be one of: ${VALID_SANDBOXES.join(", ")}\n`);
+  if (!skillName) {
+    process.stderr.write("Error: --skill-name is required\n");
     return EXIT_ERROR;
   }
-
   if (!workingDir) {
     process.stderr.write("Error: --working-dir is required\n");
     return EXIT_ERROR;
-  }
-
-  // Check codex in PATH
-  const whichCmd = IS_WIN ? "where" : "which";
-  const probe = spawnSync(whichCmd, ["codex"], { encoding: "utf8" });
-  if (probe.status !== 0) {
-    process.stderr.write("Error: codex CLI not found in PATH\n");
-    return EXIT_CODEX_NOT_FOUND;
   }
 
   let resolvedWorkingDir;
@@ -607,6 +625,98 @@ function cmdStart(argv) {
     return EXIT_ERROR;
   }
 
+  // Generate session ID: {skill}-{yyyymmdd}-{NNN}
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const prefix = `${skillName}-${today}-`;
+  const sessionsBase = path.join(resolvedWorkingDir, ".codex-review", "sessions");
+  fs.mkdirSync(sessionsBase, { recursive: true });
+
+  let maxN = 0;
+  try {
+    for (const d of fs.readdirSync(sessionsBase)) {
+      if (d.startsWith(prefix)) {
+        const n = parseInt(d.slice(prefix.length), 10);
+        if (!isNaN(n) && n > maxN) maxN = n;
+      }
+    }
+  } catch {}
+
+  // Atomic session dir creation — retry on EEXIST (parallel init race)
+  let sessionDir;
+  let sessionId;
+  let created = false;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    sessionId = `${prefix}${String(maxN + 1 + attempt).padStart(3, "0")}`;
+    sessionDir = path.join(sessionsBase, sessionId);
+    try {
+      fs.mkdirSync(sessionDir); // NOT recursive — fails with EEXIST if already taken
+      created = true;
+      break;
+    } catch (e) {
+      if (e.code === "EEXIST") continue;
+      throw e;
+    }
+  }
+
+  if (!created) {
+    process.stderr.write("Error: could not reserve session directory after 10 attempts\n");
+    return EXIT_ERROR;
+  }
+
+  process.stdout.write(`CODEX_SESSION:${sessionDir}\n`);
+  return EXIT_SUCCESS;
+}
+
+function cmdStart(argv) {
+  // First positional arg is SESSION_DIR
+  const sessionDir = argv[0];
+  if (!sessionDir) {
+    process.stderr.write("Error: session directory argument required\n");
+    return EXIT_ERROR;
+  }
+
+  // Parse remaining args
+  const { values } = parseArgs({
+    args: argv.slice(1),
+    options: {
+      effort: { type: "string", default: "high" },
+      timeout: { type: "string", default: "3600" },
+      sandbox: { type: "string", default: "read-only" },
+    },
+    strict: true,
+  });
+
+  const effort = values.effort || "high";
+  const timeout = parseInt(values.timeout || "3600", 10);
+  const sandbox = values.sandbox || "read-only";
+
+  const VALID_SANDBOXES = ["read-only", "workspace-write", "danger-full-access"];
+  if (!VALID_SANDBOXES.includes(sandbox)) {
+    process.stderr.write(`Error: --sandbox must be one of: ${VALID_SANDBOXES.join(", ")}\n`);
+    return EXIT_ERROR;
+  }
+
+  // Validate session dir exists
+  let resolvedSessionDir;
+  try {
+    resolvedSessionDir = fs.realpathSync(sessionDir);
+  } catch {
+    process.stderr.write(`Error: session directory does not exist: ${sessionDir}\n`);
+    return EXIT_ERROR;
+  }
+
+  // Infer working dir from session dir (3 levels up: sessions/ → .codex-review/ → working_dir/)
+  const resolvedWorkingDir = path.resolve(resolvedSessionDir, "..", "..", "..");
+  const sessionId = path.basename(resolvedSessionDir);
+
+  // Check codex in PATH
+  const whichCmd = IS_WIN ? "where" : "which";
+  const probe = spawnSync(whichCmd, ["codex"], { encoding: "utf8" });
+  if (probe.status !== 0) {
+    process.stderr.write("Error: codex CLI not found in PATH\n");
+    return EXIT_CODEX_NOT_FOUND;
+  }
+
   // Read prompt from stdin
   const prompt = readStdinSync();
   if (!prompt.trim()) {
@@ -614,13 +724,8 @@ function cmdStart(argv) {
     return EXIT_ERROR;
   }
 
-  // Create state directory
-  const runId = `${Math.floor(Date.now() / 1000)}-${process.pid}`;
-  const stateDir = path.join(resolvedWorkingDir, ".codex-review", "runs", runId);
-  fs.mkdirSync(stateDir, { recursive: true });
-
-  // Write prompt
-  fs.writeFileSync(path.join(stateDir, "prompt.txt"), prompt, "utf8");
+  // Write prompt (session dir already exists from init)
+  fs.writeFileSync(path.join(resolvedSessionDir, "prompt.txt"), prompt, "utf8");
 
   // Track for rollback
   let codexPgid = null;
@@ -633,13 +738,13 @@ function cmdStart(argv) {
     if (watchdogPid !== null && isAlive(watchdogPid)) {
       killSingle(watchdogPid);
     }
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    // Session mode: do NOT delete session dir on startup failure
   }
 
   try {
-    // Launch Codex
+    // Launch Codex (no threadId for start — round 1)
     const { pid: codexPid, pgid } = launchCodex(
-      stateDir, resolvedWorkingDir, timeout, threadId, effort, sandbox,
+      resolvedSessionDir, resolvedWorkingDir, timeout, "", effort, sandbox,
     );
     codexPgid = pgid;
 
@@ -649,22 +754,22 @@ function cmdStart(argv) {
     // Write state.json atomically
     const now = Math.floor(Date.now() / 1000);
     const state = {
+      session_id: sessionId,
       pid: codexPid,
       pgid: codexPgid,
       watchdog_pid: watchdogPid,
-      run_id: runId,
-      state_dir: stateDir,
+      state_dir: resolvedSessionDir,
       working_dir: resolvedWorkingDir,
       effort,
       sandbox,
       timeout,
       started_at: now,
-      thread_id: threadId,
+      thread_id: "",
       last_line_count: 0,
       stall_count: 0,
       last_poll_at: 0,
     };
-    atomicWrite(path.join(stateDir, "state.json"), JSON.stringify(state, null, 2));
+    atomicWrite(path.join(resolvedSessionDir, "state.json"), JSON.stringify(state, null, 2));
   } catch (e) {
     process.stderr.write(`Error: ${e.message}\n`);
     startupCleanup();
@@ -672,7 +777,134 @@ function cmdStart(argv) {
   }
 
   // Success
-  process.stdout.write(`CODEX_STARTED:${stateDir}\n`);
+  process.stdout.write(`CODEX_STARTED:${resolvedSessionDir}\n`);
+  return EXIT_SUCCESS;
+}
+
+function cmdResume(argv) {
+  // First positional arg is SESSION_DIR
+  const sessionDir = argv[0];
+  if (!sessionDir) {
+    process.stderr.write("Error: session directory argument required\n");
+    return EXIT_ERROR;
+  }
+
+  const { values } = parseArgs({
+    args: argv.slice(1),
+    options: {
+      effort: { type: "string", default: "high" },
+      timeout: { type: "string", default: "3600" },
+    },
+    strict: true,
+  });
+
+  const effort = values.effort || "high";
+  const timeout = parseInt(values.timeout || "3600", 10);
+
+  // Validate session dir exists
+  let resolvedSessionDir;
+  try {
+    resolvedSessionDir = fs.realpathSync(sessionDir);
+  } catch {
+    process.stderr.write(`Error: session directory does not exist: ${sessionDir}\n`);
+    return EXIT_ERROR;
+  }
+
+  // Read previous state to get thread_id and working_dir
+  let prevState;
+  try {
+    prevState = readState(resolvedSessionDir);
+  } catch (e) {
+    process.stderr.write(`Error: cannot read state.json: ${e.message}\n`);
+    return EXIT_ERROR;
+  }
+
+  const threadId = prevState.thread_id || "";
+  const resolvedWorkingDir = prevState.working_dir || "";
+  const sessionId = prevState.session_id || path.basename(resolvedSessionDir);
+
+  if (!threadId) {
+    process.stderr.write("Error: no thread_id found in state.json — cannot resume\n");
+    return EXIT_ERROR;
+  }
+
+  if (!resolvedWorkingDir) {
+    process.stderr.write("Error: no working_dir found in state.json\n");
+    return EXIT_ERROR;
+  }
+
+  // Check codex in PATH
+  const whichCmd = IS_WIN ? "where" : "which";
+  const probe = spawnSync(whichCmd, ["codex"], { encoding: "utf8" });
+  if (probe.status !== 0) {
+    process.stderr.write("Error: codex CLI not found in PATH\n");
+    return EXIT_CODEX_NOT_FOUND;
+  }
+
+  // Read prompt from stdin (BEFORE clearing old artifacts — if stdin empty, abort without data loss)
+  const prompt = readStdinSync();
+  if (!prompt.trim()) {
+    process.stderr.write("Error: no prompt provided on stdin\n");
+    return EXIT_ERROR;
+  }
+
+  // Write prompt (overwrite)
+  fs.writeFileSync(path.join(resolvedSessionDir, "prompt.txt"), prompt, "utf8");
+
+  // Track for rollback
+  let codexPgid = null;
+  let watchdogPid = null;
+
+  function startupCleanup() {
+    if (codexPgid !== null) {
+      killTree(codexPgid);
+    }
+    if (watchdogPid !== null && isAlive(watchdogPid)) {
+      killSingle(watchdogPid);
+    }
+    // Session mode: do NOT delete session dir on startup failure
+  }
+
+  try {
+    // Launch Codex WITH thread_id for resume
+    const { pid: codexPid, pgid } = launchCodex(
+      resolvedSessionDir, resolvedWorkingDir, timeout, threadId, effort,
+    );
+    codexPgid = pgid;
+
+    // Launch watchdog
+    watchdogPid = launchWatchdog(timeout, codexPgid);
+
+    // Write state.json atomically (overwrite, preserve thread_id)
+    const now = Math.floor(Date.now() / 1000);
+    const state = {
+      session_id: sessionId,
+      pid: codexPid,
+      pgid: codexPgid,
+      watchdog_pid: watchdogPid,
+      state_dir: resolvedSessionDir,
+      working_dir: resolvedWorkingDir,
+      effort,
+      sandbox: prevState.sandbox || "read-only",
+      timeout,
+      started_at: now,
+      thread_id: threadId,
+      last_line_count: 0,
+      stall_count: 0,
+      last_poll_at: 0,
+    };
+    atomicWrite(path.join(resolvedSessionDir, "state.json"), JSON.stringify(state, null, 2));
+  } catch (e) {
+    process.stderr.write(`Error: ${e.message}\n`);
+    startupCleanup();
+    return EXIT_ERROR;
+  }
+
+  // Success — now clear stale artifacts from previous round (after spawn confirmed)
+  try { fs.unlinkSync(path.join(resolvedSessionDir, "final.txt")); } catch {}
+  try { fs.unlinkSync(path.join(resolvedSessionDir, "review.md")); } catch {}
+
+  process.stdout.write(`CODEX_STARTED:${resolvedSessionDir}\n`);
   return EXIT_SUCCESS;
 }
 
@@ -742,7 +974,7 @@ function cmdPoll(argv) {
     : 0;
 
   // Parse JSONL
-  let { stdoutOutput: pollOutput, stderrLines } = parseJsonl(
+  let { stdoutOutput: pollOutput, stderrLines, summary, extractedThreadId } = parseJsonl(
     stateDir, lastLineCount, elapsed, processAlive, timeoutVal, state
   );
 
@@ -771,10 +1003,17 @@ function cmdPoll(argv) {
     if (elapsed >= timeoutVal) {
       pollOutput = `POLL:timeout:${elapsed}s:${EXIT_TIMEOUT}:Timeout after ${timeoutVal}s`;
       writeFinalAndCleanup(pollOutput);
+      pollStatus = "timeout";
     } else if (newStallCount >= 12 && processAlive) {
       pollOutput = `POLL:stalled:${elapsed}s:${EXIT_STALLED}:No new output for ~3 minutes`;
       writeFinalAndCleanup(pollOutput);
+      pollStatus = "stalled";
     }
+  }
+
+  // Persist thread_id to state.json
+  if (extractedThreadId) {
+    updateState(stateDir, { thread_id: extractedThreadId });
   }
 
   // Update state.json
@@ -783,6 +1022,11 @@ function cmdPoll(argv) {
     stall_count: newStallCount,
     last_poll_at: now,
   });
+
+  // Append SUMMARY when still running
+  if (pollStatus === "running") {
+    pollOutput += `\nSUMMARY:${summary}`;
+  }
 
   process.stdout.write(pollOutput + "\n");
   return EXIT_SUCCESS;
@@ -814,12 +1058,16 @@ function cmdStop(argv) {
     if (watchdogPid) {
       verifyAndKillWatchdog(watchdogPid);
     }
+
+    // Only delete in legacy runs/ mode
+    if (state.run_id && !state.session_id) {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+    // Session mode: keep dir intact (kill processes only)
   } catch {
     // State may be corrupted, proceed to cleanup
   }
 
-  // Remove state directory
-  fs.rmSync(stateDir, { recursive: true, force: true });
   return EXIT_SUCCESS;
 }
 
@@ -867,8 +1115,14 @@ function main() {
       process.stdout.write(`${CODEX_RUNNER_VERSION}\n`);
       exitCode = EXIT_SUCCESS;
       break;
+    case "init":
+      exitCode = cmdInit(rest);
+      break;
     case "start":
       exitCode = cmdStart(rest);
+      break;
+    case "resume":
+      exitCode = cmdResume(rest);
       break;
     case "poll":
       exitCode = cmdPoll(rest);
@@ -884,7 +1138,9 @@ function main() {
         "codex-runner.js — Cross-platform runner for Codex CLI\n\n" +
         "Usage:\n" +
         "  node codex-runner.js version\n" +
-        "  node codex-runner.js start --working-dir <dir> [--effort <level>] [--thread-id <id>] [--timeout <s>] [--sandbox <mode>]\n" +
+        "  node codex-runner.js init --skill-name <name> --working-dir <dir>\n" +
+        "  node codex-runner.js start <session_dir> [--effort <level>] [--timeout <s>] [--sandbox <mode>]\n" +
+        "  node codex-runner.js resume <session_dir> [--effort <level>] [--timeout <s>]\n" +
         "  node codex-runner.js poll <state_dir>\n" +
         "  node codex-runner.js stop <state_dir>\n",
       );

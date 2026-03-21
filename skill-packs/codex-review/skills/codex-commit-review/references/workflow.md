@@ -56,9 +56,14 @@ Store result as `{PROJECT_CONVENTIONS}` for prompt injection.
 Set `ROUND=1`.
 
 ```bash
-STATE_OUTPUT=$(printf '%s' "$PROMPT" | node "$RUNNER" start --working-dir "$PWD" --effort "$EFFORT")
-STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
+INIT_OUTPUT=$(node "$RUNNER" init --skill-name codex-commit-review --working-dir "$PWD")
+SESSION_DIR=${INIT_OUTPUT#CODEX_SESSION:}
+
+START_OUTPUT=$(printf '%s' "$PROMPT" | node "$RUNNER" start "$SESSION_DIR" --effort "$EFFORT")
 ```
+
+**Validate init output:** Verify `INIT_OUTPUT` starts with `CODEX_SESSION:`. If not, report error.
+**Validate start output:** Verify `START_OUTPUT` starts with `CODEX_STARTED:`. If not, report error.
 
 **Do NOT poll yet. Proceed to Step 2.5.**
 
@@ -66,7 +71,7 @@ STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
 
 **PURPOSE**: Claude evaluates commit message(s) BEFORE seeing Codex output. This prevents anchoring bias and ensures genuine peer debate.
 
-**INFORMATION BARRIER**: MUST NOT read `$STATE_DIR/review.md` or any Codex output file.
+**INFORMATION BARRIER**: MUST NOT read `$SESSION_DIR/review.md` or any Codex output file.
 
 **Instructions:**
 1. Read the assembled Claude Independent Analysis Prompt (from Step 1.8).
@@ -81,7 +86,7 @@ STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
 ## 3) Poll
 
 ```bash
-POLL_OUTPUT=$(node "$RUNNER" poll "$STATE_DIR")
+POLL_OUTPUT=$(node "$RUNNER" poll "$SESSION_DIR")
 ```
 
 Adaptive intervals — start slow, speed up:
@@ -96,31 +101,21 @@ Adaptive intervals — start slow, speed up:
 - Poll 1: wait 30s
 - Poll 2+: wait 15s
 
-After each poll, parse the status lines and report **specific activities** to the user. NEVER say generic messages like "Codex is running" or "still waiting" — these provide no information.
+After each poll, report **specific activities** to the user using the `SUMMARY:` line from poll stdout. NEVER say generic messages like "Codex is running" or "still waiting" — these provide no information.
 
-**Poll output parsing guide:**
+**Poll stdout format:**
+- Line 1: `POLL:{status}:{elapsed}[:{exit_code}:{details}]`
+- Line 2 (if completed): `THREAD_ID:{id}`
+- Line 2 (if running): `SUMMARY:{activity description}`
 
-| Poll line pattern | Report to user |
-|-------------------|---------------|
-| `Codex thinking: "**topic**"` | Codex analyzing: {topic} |
-| `Codex running: ... 'git diff --cached'` | Codex reading staged diff |
-| `Codex running: ... 'git diff HEAD~N..HEAD'` | Codex reading commit range diff |
-| `Codex running: ... 'git show <sha>'` | Codex inspecting commit `<sha>` |
-| `Codex running: ... 'git log ...'` | Codex reading commit history |
-| `Codex running: ... 'cat src/foo.ts'` | Codex reading file `src/foo.ts` |
-| `Codex running: ... 'rg -n "pattern" ...'` | Codex searching for `pattern` in code |
-| `Codex running: ... 'git config commit.template'` | Codex checking commit template config |
-| Multiple completed commands | Codex read {N} files, analyzing results |
-
-**Report template:** "Codex [{elapsed}s]: {specific activity summary}" — always include elapsed time and concrete description.
+**Report template:** `"Codex [{elapsed}s]: {summary}"` — read the SUMMARY line and report it directly to the user.
 
 Continue while status is `running`.
 Stop on `completed|failed|timeout|stalled`.
 
 **On `POLL:completed`:**
 1. Extract thread ID from poll output: look for `THREAD_ID:<id>` line.
-2. Read Codex output: `cat "$STATE_DIR/review.md"`.
-3. Save for Round 2+: `THREAD_ID=<extracted id>`.
+2. Read Codex output: `cat "$SESSION_DIR/review.md"`.
 
 ## 4) Cross-Analysis
 
@@ -152,6 +147,11 @@ Map Claude's FINDING-{N} to Codex's ISSUE-{N} using the Matching Protocol in `re
 - If STALEMATE → proceed to Step 7 (Final Output).
 - If CONTINUE → proceed to Step 5 (Resume Round 2+).
 
+After parsing each round's review, append round summary to `$SESSION_DIR/rounds.json`:
+- Read existing rounds.json or start with empty array `[]`
+- Append: `{ "round": N, "elapsed_seconds": ..., "verdict": "...", "issues_found": ..., "issues_fixed": ..., "issues_disputed": ... }`
+- Write back to `$SESSION_DIR/rounds.json`
+
 ## 5) Resume Round 2+
 
 Build Round 2+ prompt from `references/prompts.md` (appropriate Response template — Draft or Last):
@@ -166,12 +166,8 @@ Build Round 2+ prompt from `references/prompts.md` (appropriate Response templat
 - Replace `{OUTPUT_FORMAT}` by copying the entire fenced code block from `references/output-format.md`.
 
 ```bash
-STATE_OUTPUT=$(printf '%s' "$RESPONSE_PROMPT" | node "$RUNNER" start \
-  --working-dir "$PWD" --thread-id "$THREAD_ID" --effort "$EFFORT")
-STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
+START_OUTPUT=$(printf '%s' "$RESPONSE_PROMPT" | node "$RUNNER" resume "$SESSION_DIR" --effort "$EFFORT")
 ```
-
-**Important:** Update `STATE_DIR` after every `start --thread-id` — the runner creates a new state directory each round.
 
 **→ Go back to step 3 (Poll).** Increment `ROUND` counter. After poll completes, repeat step 4 (Cross-Analysis) and check stop conditions. If `ROUND >= 5`, force final output — do NOT resume. Otherwise, continue until a stop condition is reached.
 
@@ -239,22 +235,19 @@ Present a consensus report — **NEVER propose revised commit messages**.
 
 ## 8) Cleanup
 ```bash
-node "$RUNNER" stop "$STATE_DIR"
+node "$RUNNER" stop "$SESSION_DIR"
 ```
-Remove the state directory and kill any remaining Codex/watchdog processes. Always run this step, even if the review ended due to failure or timeout. Use the latest `STATE_DIR` from the most recent round.
+Kill any remaining Codex/watchdog processes. Always run this step, even if the review ended due to failure or timeout.
 
-## Session Output
+## Session Finalization
 
-After the final round completes (or after Round 1 for single-round skills), create a persistent session directory:
+After the final round completes, write session metadata to the session directory (review.md is already present from poll):
 
 ```bash
-SESSION_DIR=".codex-review/sessions/codex-commit-review-$(date +%s)-$$"
-mkdir -p "$SESSION_DIR"
-cp "$STATE_DIR/review.md" "$SESSION_DIR/review.md"
 cat > "$SESSION_DIR/meta.json" << METAEOF
 {
   "skill": "codex-commit-review",
-  "version": 14,
+  "version": 15,
   "effort": "$EFFORT",
   "mode": "$MODE",
   "rounds": ${ROUND_COUNT:-0},
@@ -281,7 +274,8 @@ Runner `poll` returns status via output string `POLL:<status>:<elapsed>[:exit_co
 **Fallback when poll exits non-zero or output cannot be parsed:**
 - Log error output, report infrastructure error to user, suggest retry.
 
-**Validate start output:** Verify `STATE_OUTPUT` starts with `CODEX_STARTED:`. If not, report error.
+**Validate init output:** Verify `INIT_OUTPUT` starts with `CODEX_SESSION:`. If not, report error.
+**Validate start output:** Verify `START_OUTPUT` starts with `CODEX_STARTED:`. If not, report error.
 
 Runner `start` may fail with exit code:
 - 1 → Generic error (invalid args, I/O). Report error message.

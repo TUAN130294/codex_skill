@@ -123,7 +123,7 @@ skill-packs/codex-review/
 1. **Skill invocation** (`/codex-plan-review`, `/codex-impl-review`, `/codex-think-about`, `/codex-commit-review`, `/codex-pr-review`, `/codex-parallel-review`, `/codex-codebase-review`, or `/codex-security-review`) follows SKILL.md step-by-step
 2. **Runner path**: SKILL.md contains hardcoded absolute path to `codex-runner.js`
 3. **codex-runner.js** spawns `codex exec --json --sandbox read-only` as a detached process, polls JSONL output
-4. **Review debate loop** (plan-review, impl-review, commit-review, pr-review): Claude Code parses Codex's `ISSUE-{N}` review → fixes/rebuts → resumes via `--thread-id` → repeats until `APPROVE` verdict or stalemate
+4. **Review debate loop** (plan-review, impl-review, commit-review, pr-review): Claude Code parses Codex's `ISSUE-{N}` review → fixes/rebuts → resumes via `resume` command → repeats until `APPROVE` verdict or stalemate
 5. **Peer debate loop** (think-about): Claude Code and Codex think independently → discuss → exchange perspectives → repeat until consensus or stalemate → present to user
 6. **Parallel review loop** (parallel-review): Claude and Codex review independently in parallel → merge findings → debate disagreements → produce consensus report
 7. **Chunked codebase review** (codebase-review): split codebase into module chunks → review each chunk in independent Codex session → Claude synthesizes cross-cutting findings
@@ -135,7 +135,7 @@ skill-packs/codex-review/
 - **Cross-platform**: Works on Windows, macOS, and Linux
 - **Prompt minimalism**: Prompts contain only file paths and context; Codex reads files/diffs itself
 - **Structured output**: Review skills use `ISSUE-{N}` format with `VERDICT` block; think-about uses Key Insights / Considerations / Recommendations
-- **Thread persistence**: First call creates a thread; subsequent rounds use `codex exec resume <thread_id>`
+- **Thread persistence**: `init` creates a session; `start` begins round 1; `resume` continues with auto thread_id lookup
 - **Stalemate detection**: Stops if same points repeat for 2 consecutive rounds with no progress
 - **PID-reuse protection**: `verifyCodex()` and `verifyWatchdog()` check process cmdline before killing — prevents killing wrong process if OS reuses the PID
 - **Atomic install**: Uses staging dir + rename for safe install/update with rollback on failure
@@ -173,10 +173,21 @@ skill-packs/codex-review/
 - **Test files deleted**: `test-converters.js`, `test-converters-comprehensive.js`, `test-integration.js`
 - **Schema doc deleted**: `docs/CANONICAL_JSON_SCHEMA.md`
 
+### v12: Unified session directories (runs/ → sessions/)
+- **New runner commands**: `init` (creates session dir), `resume` (round 2+ with auto thread_id).
+- **`start` changed**: Now takes session dir as positional arg (from `init`), no longer creates dir.
+- **`poll` enhanced**: Adds `SUMMARY:` line to stdout with activity summary. Claude no longer needs to parse stderr for reporting.
+- **Run directories removed**: `.codex-review/runs/` no longer created. All state lives in `.codex-review/sessions/{skill}-{yyyymmdd}-{NNN}/`.
+- **Session naming**: Human-readable `{skill}-{yyyymmdd}-{NNN}` (e.g., `codex-plan-review-20260321-001`).
+- **`stop` no longer deletes**: Session dir persists. All files retained for debugging.
+- **state.json**: `run_id` → `session_id`.
+- **New files**: `rounds.json` (round history), `meta.json` written to session dir.
+- **Backward compat**: `poll`/`stop` accept both old `runs/` and new `sessions/` paths. Legacy removed in v13.
+
 ## Verification
 
 1. `node bin/codex-skill.js` — installer chạy thành công
-2. `node skill-packs/codex-review/scripts/codex-runner.js version` — in version `11`
+2. `node skill-packs/codex-review/scripts/codex-runner.js version` — in version `12`
 3. `ls ~/.claude/skills/codex-review/` — chứa `scripts/`
 4. SKILL.md chứa absolute path, không search loop
 5. Invoke `/codex-plan-review`, `/codex-impl-review`, `/codex-think-about`, `/codex-commit-review`, `/codex-pr-review`, `/codex-parallel-review`, `/codex-codebase-review`, `/codex-security-review` trong Claude Code

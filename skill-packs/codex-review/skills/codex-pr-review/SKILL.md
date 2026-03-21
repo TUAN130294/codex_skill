@@ -30,13 +30,13 @@ RUNNER="{{RUNNER_PATH}}"
    - Announce: "Detected: base=`$BASE`, effort=`$EFFORT` (N files changed). Proceeding — reply to override. PR title/description optional."
    - Set `BASE` and `EFFORT`. Only block if base branch cannot be resolved.
 2. Run pre-flight checks (see `references/workflow.md` §1.5).
-3. Gather branch diff, commit log, file stats. Build prompts from `references/prompts.md`, following the Placeholder Injection Guide. **Start Codex** (background) with `node "$RUNNER" start`.
-4. **Claude Independent Analysis** (BEFORE reading Codex output): Claude analyzes the PR independently using format from `references/claude-analysis-template.md`. **INFORMATION BARRIER** — do NOT read `$STATE_DIR/review.md` until analysis is complete. See `references/workflow.md` Step 2.5.
+3. Gather branch diff, commit log, file stats. Build prompts from `references/prompts.md`, following the Placeholder Injection Guide. **Start Codex** (background) with `node "$RUNNER" init --skill-name codex-pr-review --working-dir "$PWD"` then `node "$RUNNER" start "$SESSION_DIR"`.
+4. **Claude Independent Analysis** (BEFORE reading Codex output): Claude analyzes the PR independently using format from `references/claude-analysis-template.md`. **INFORMATION BARRIER** — do NOT read `$SESSION_DIR/review.md` until analysis is complete. See `references/workflow.md` Step 2.5.
 5. Poll Codex with adaptive intervals (Round 1: 60s/60s/30s/15s..., Round 2+: 30s/15s...). After each poll, report **specific activities** from poll output. See `references/workflow.md` for parsing guide. NEVER report generic "Codex is running" — always extract concrete details.
 6. **Cross-Analysis**: Compare Claude's FINDING-{N} with Codex's ISSUE-{N}. Identify genuine agreements, genuine disagreements, and unique findings from each side. See `references/workflow.md` Step 4.
-7. Resume debate via `--thread-id` until consensus, stalemate, or hard cap (5 rounds).
+7. Resume debate via `node "$RUNNER" resume "$SESSION_DIR"` until consensus, stalemate, or hard cap (5 rounds).
 8. Final: consensus report + **Merge Readiness Scorecard** + **MERGE / REVISE / REJECT** recommendation. **NEVER edit code.**
-9. Cleanup: `node "$RUNNER" stop "$STATE_DIR"`.
+9. Cleanup: `node "$RUNNER" stop "$SESSION_DIR"`.
 
 ### Effort Level Guide
 | Level    | Depth             | Best for                        | Typical time |

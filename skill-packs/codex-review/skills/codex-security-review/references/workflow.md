@@ -88,19 +88,15 @@ You are a security expert conducting a thorough security review...
 EOF
 )"
 
-# Start review with prompt on stdin
-echo "$PROMPT" | node "$RUNNER" start \
-  --working-dir "$PWD" \
-  --effort "$EFFORT" \
-  2>&1 | tee codex-start.log
+# Initialize session and start review
+INIT_OUTPUT=$(node "$RUNNER" init --skill-name codex-security-review --working-dir "$PWD")
+SESSION_DIR=${INIT_OUTPUT#CODEX_SESSION:}
+
+START_OUTPUT=$(printf '%s' "$PROMPT" | node "$RUNNER" start "$SESSION_DIR" --effort "$EFFORT")
 ```
 
-**Expected output**:
-```
-CODEX_STARTED:/path/to/.codex-review/runs/1234567890-12345
-```
-
-Extract `STATE_DIR` from output.
+**Validate init output:** Verify `INIT_OUTPUT` starts with `CODEX_SESSION:`. If not, report error.
+**Validate start output:** Verify `START_OUTPUT` starts with `CODEX_STARTED:`. If not, report error.
 
 ### Step 2: Poll for Progress
 
@@ -109,7 +105,7 @@ Use adaptive polling intervals:
 - **Round 2+**: 30s, 15s, 15s, 15s...
 
 ```bash
-node "$RUNNER" poll "$STATE_DIR"
+node "$RUNNER" poll "$SESSION_DIR"
 ```
 
 **Parse poll output** and report specific activities:
@@ -120,9 +116,9 @@ node "$RUNNER" poll "$STATE_DIR"
 
 ### Step 3: Parse Security Findings
 
-When poll returns `POLL:complete`:
+When poll returns `POLL:completed`:
 
-1. Read review output from `$STATE_DIR/review.md`
+1. Read review output from `$SESSION_DIR/review.md`
 2. Parse ISSUE-{N} blocks using regex:
    ```regex
    ISSUE-(\d+): (.+?)\n
@@ -134,6 +130,11 @@ When poll returns `POLL:complete`:
    ```
 3. Extract VERDICT block
 4. Build structured findings list
+
+After parsing each round's review, append round summary to `$SESSION_DIR/rounds.json`:
+- Read existing rounds.json or start with empty array `[]`
+- Append: `{ "round": N, "elapsed_seconds": ..., "verdict": "...", "issues_found": ..., "issues_fixed": ..., "issues_disputed": ... }`
+- Write back to `$SESSION_DIR/rounds.json`
 
 ### Step 4: Present Findings to User
 
@@ -246,10 +247,7 @@ Format:
 ### Step 2: Resume Thread
 
 ```bash
-echo "$ROUND2_PROMPT" | node "$RUNNER" start \
-  --working-dir "$PWD" \
-  --effort "$EFFORT" \
-  --thread-id "$THREAD_ID"
+START_OUTPUT=$(printf '%s' "$ROUND2_PROMPT" | node "$RUNNER" resume "$SESSION_DIR" --effort "$EFFORT")
 ```
 
 ### Step 3: Parse Round 2 Response
@@ -273,7 +271,7 @@ Continue rounds until:
 ### Step 1: Stop Codex Process
 
 ```bash
-node "$RUNNER" stop "$STATE_DIR"
+node "$RUNNER" stop "$SESSION_DIR"
 ```
 
 ### Step 2: Generate Final Security Report
@@ -322,36 +320,21 @@ node "$RUNNER" stop "$STATE_DIR"
 ```bash
 # Copy review artifacts to project docs
 mkdir -p docs/security-reviews
-cp "$STATE_DIR/review.md" "docs/security-reviews/review-$(date +%Y%m%d).md"
-cp "$STATE_DIR/output.jsonl" "docs/security-reviews/review-$(date +%Y%m%d).jsonl"
+cp "$SESSION_DIR/review.md" "docs/security-reviews/review-$(date +%Y%m%d).md"
 ```
 
 ---
 
 ## Polling Output Parsing
 
-### Poll Output Format
+After each poll, report **specific activities** to the user using the `SUMMARY:` line from poll stdout. NEVER say generic messages like "Codex is running" or "still waiting" — these provide no information.
 
-```
-POLL:running:45s:3:Codex is analyzing src/auth.js for authentication vulnerabilities
-```
+**Poll stdout format:**
+- Line 1: `POLL:{status}:{elapsed}[:{exit_code}:{details}]`
+- Line 2 (if completed): `THREAD_ID:{id}`
+- Line 2 (if running): `SUMMARY:{activity description}`
 
-Format: `POLL:{status}:{elapsed}:{line_count}:{activity}`
-
-### Activity Extraction
-
-Parse the activity field and report specific details:
-
-**Good examples**:
-- "Analyzing authentication logic in src/auth.js"
-- "Checking SQL queries in src/db/users.js for injection vulnerabilities"
-- "Scanning config/ directory for hardcoded secrets"
-- "Reviewing session management in src/middleware/session.js"
-
-**Bad examples** (too generic):
-- "Codex is running"
-- "Processing files"
-- "Analyzing code"
+**Report template:** `"Codex [{elapsed}s]: {summary}"` — read the SUMMARY line and report it directly to the user.
 
 ### Status Codes
 
@@ -365,18 +348,15 @@ Parse the activity field and report specific details:
 
 ---
 
-## Session Output
+## Session Finalization
 
-After the final round completes (or after Round 1 for single-round skills), create a persistent session directory:
+After the final round completes, write session metadata to the session directory (review.md is already present from poll):
 
 ```bash
-SESSION_DIR=".codex-review/sessions/codex-security-review-$(date +%s)-$$"
-mkdir -p "$SESSION_DIR"
-cp "$STATE_DIR/review.md" "$SESSION_DIR/review.md"
 cat > "$SESSION_DIR/meta.json" << METAEOF
 {
   "skill": "codex-security-review",
-  "version": 14,
+  "version": 15,
   "effort": "$EFFORT",
   "scope": "$SCOPE",
   "rounds": ${ROUND_COUNT:-0},
@@ -472,8 +452,10 @@ git status --short
 # 2. Get diff
 git diff HEAD
 
-# 3. Start review (prompt should be piped via stdin)
-echo "$SECURITY_PROMPT" | node "$RUNNER" start --working-dir "$PWD" --effort high
+# 3. Initialize session and start review (prompt should be piped via stdin)
+INIT_OUTPUT=$(node "$RUNNER" init --skill-name codex-security-review --working-dir "$PWD")
+SESSION_DIR=${INIT_OUTPUT#CODEX_SESSION:}
+START_OUTPUT=$(printf '%s' "$SECURITY_PROMPT" | node "$RUNNER" start "$SESSION_DIR" --effort high)
 
 # 4. Focus on changed lines and surrounding context
 ```
@@ -490,8 +472,10 @@ git rev-parse --verify origin/main
 # 3. Get branch diff
 git diff origin/main...HEAD
 
-# 4. Start review (prompt should be piped via stdin)
-echo "$SECURITY_PROMPT" | node "$RUNNER" start --working-dir "$PWD" --effort high
+# 4. Initialize session and start review (prompt should be piped via stdin)
+INIT_OUTPUT=$(node "$RUNNER" init --skill-name codex-security-review --working-dir "$PWD")
+SESSION_DIR=${INIT_OUTPUT#CODEX_SESSION:}
+START_OUTPUT=$(printf '%s' "$SECURITY_PROMPT" | node "$RUNNER" start "$SESSION_DIR" --effort high)
 
 # 5. Review all commits in branch
 git log origin/main..HEAD --oneline
@@ -503,8 +487,10 @@ git log origin/main..HEAD --oneline
 # 1. Identify critical files
 find . -name "*.js" -o -name "*.py" -o -name "*.java" | grep -E "(auth|login|password|token|api|admin)"
 
-# 2. Start review (may take longer, prompt should be piped via stdin)
-echo "$SECURITY_PROMPT" | node "$RUNNER" start --working-dir "$PWD" --effort high
+# 2. Initialize session and start review (may take longer, prompt should be piped via stdin)
+INIT_OUTPUT=$(node "$RUNNER" init --skill-name codex-security-review --working-dir "$PWD")
+SESSION_DIR=${INIT_OUTPUT#CODEX_SESSION:}
+START_OUTPUT=$(printf '%s' "$SECURITY_PROMPT" | node "$RUNNER" start "$SESSION_DIR" --effort high)
 
 # 3. Prioritize high-risk areas:
 #    - Authentication/authorization
@@ -555,9 +541,17 @@ echo "$SECURITY_PROMPT" | node "$RUNNER" start --working-dir "$PWD" --effort hig
 # .git/hooks/pre-commit
 
 echo "Running security review on staged changes..."
-node "$RUNNER" start --working-dir "$PWD" --effort low
+INIT_OUTPUT=$(node "$RUNNER" init --skill-name codex-security-review --working-dir "$PWD")
+SESSION_DIR=${INIT_OUTPUT#CODEX_SESSION:}
+START_OUTPUT=$(printf '%s' "$SECURITY_PROMPT" | node "$RUNNER" start "$SESSION_DIR" --effort low)
 
-if grep -q "VERDICT: REVISE" .codex-review/runs/*/review.md; then
+# Poll until complete
+while true; do
+  POLL=$(node "$RUNNER" poll "$SESSION_DIR")
+  case "$POLL" in POLL:running:*) sleep 15;; *) break;; esac
+done
+
+if grep -q "VERDICT: REVISE" "$SESSION_DIR/review.md" 2>/dev/null; then
   echo "❌ Security issues found. Commit blocked."
   echo "Run 'codex-security-review' for details."
   exit 1
@@ -582,8 +576,14 @@ jobs:
         run: npm install -g @openai/codex
       - name: Run Security Review
         run: |
-          node codex-runner.js start --working-dir . --effort high
-          cat .codex-review/runs/*/review.md >> $GITHUB_STEP_SUMMARY
+          INIT_OUTPUT=$(node codex-runner.js init --skill-name codex-security-review --working-dir .)
+          SESSION_DIR=${INIT_OUTPUT#CODEX_SESSION:}
+          printf '%s' "$SECURITY_PROMPT" | node codex-runner.js start "$SESSION_DIR" --effort high
+          while true; do
+            POLL=$(node codex-runner.js poll "$SESSION_DIR")
+            case "$POLL" in POLL:running:*) sleep 15;; *) break;; esac
+          done
+          cat "$SESSION_DIR/review.md" >> $GITHUB_STEP_SUMMARY
 ```
 
 ---

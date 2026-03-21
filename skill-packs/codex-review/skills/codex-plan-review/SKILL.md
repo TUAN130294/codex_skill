@@ -30,10 +30,10 @@ RUNNER="{{RUNNER_PATH}}"
    - Set `PLAN_PATH` and `EFFORT`. Block only if plan file cannot be found or resolved.
 2. Run pre-flight checks (see `references/workflow.md` §1.5).
 3. Build prompt from `references/prompts.md` (`Plan Review Prompt`), following the Placeholder Injection Guide.
-4. Start round 1 with `node "$RUNNER" start --working-dir "$PWD" --effort "$EFFORT"`.
+4. Start round 1: `node "$RUNNER" init --skill-name codex-plan-review --working-dir "$PWD"` to create session, then `node "$RUNNER" start "$SESSION_DIR" --effort "$EFFORT"`.
 5. Poll with adaptive intervals (Round 1: 60s/60s/30s/15s..., Round 2+: 30s/15s...). After each poll, report **specific activities** from poll output (e.g. which files Codex is reading, what topic it is analyzing). See `references/workflow.md` for parsing guide. NEVER report generic "Codex is running" — always extract concrete details.
 6. Parse Codex issues (`ISSUE-{N}` + `VERDICT`) using `references/output-format.md`.
-7. Apply valid fixes to the plan, **save the plan file**, rebut invalid points, and resume with `--thread-id`.
+7. Apply valid fixes to the plan, **save the plan file**, rebut invalid points, and resume with `node "$RUNNER" resume "$SESSION_DIR"`.
 8. Repeat until `APPROVE`, stalemate, or hard cap (5 rounds).
 9. Return final debate summary, residual risks, and final plan path.
 

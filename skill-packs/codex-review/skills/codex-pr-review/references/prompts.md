@@ -82,7 +82,7 @@ You are Codex acting as an equal peer reviewer of a pull request. Another review
 You are reviewing a pull request independently. Codex is reviewing the same PR separately — you will NOT see their findings until later.
 
 ## INFORMATION BARRIER
-- Do NOT read $STATE_DIR/review.md or any Codex output.
+- Do NOT read $SESSION_DIR/review.md or any Codex output.
 - Form your OWN conclusions based on the diff, commits, and PR metadata.
 - Commit to specific positions.
 

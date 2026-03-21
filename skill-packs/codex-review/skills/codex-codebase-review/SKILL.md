@@ -29,11 +29,11 @@ RUNNER="{{RUNNER_PATH}}"
    - Set `EFFORT`. Also ask: parallel factor (default 3 chunks), focus areas (optional).
 2. **Discovery**: detect project type, list source files, identify module boundaries.
 3. **Chunking**: group files into 500-2000 line chunks, present chunk plan.
-4. **Review loop**: for each chunk — build prompt, `node "$RUNNER" start`, poll, parse ISSUE-{N}, propagate context.
+4. **Review loop**: for each chunk — build prompt, `node "$RUNNER" init --skill-name codex-codebase-review --working-dir "$PWD"` then `node "$RUNNER" start "$SESSION_DIR"`, poll, parse ISSUE-{N}, propagate context.
 5. **Cross-cutting analysis**: Claude synthesizes all chunk findings — inconsistencies, API contracts, DRY violations, integration, architecture.
 6. **Validation** (effort >= high): feed CROSS-{N} findings to Codex for verification.
 7. **Final report**: overview table, per-module findings, cross-cutting findings, action items.
-8. **Cleanup**: stop ALL tracked STATE_DIRs — always runs regardless of outcome.
+8. **Cleanup**: stop ALL tracked SESSION_DIRs — always runs regardless of outcome.
 
 ### Effort Level Guide
 | Level    | Discovery        | Cross-cutting    | Validation   | Typical time        |
@@ -52,5 +52,5 @@ RUNNER="{{RUNNER_PATH}}"
 - Codex reviews only; it does not edit files.
 - No cross-contamination between chunk sessions — each chunk is independent.
 - Context propagation: only high/critical findings from prior chunks, capped at ~2000 tokens.
-- Cleanup always runs — stop every tracked STATE_DIR regardless of outcome.
+- Cleanup always runs — stop every tracked SESSION_DIR regardless of outcome.
 - Scope is full codebase only — for diff review use `/codex-impl-review`.

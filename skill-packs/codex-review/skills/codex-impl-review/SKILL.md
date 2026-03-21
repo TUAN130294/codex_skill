@@ -31,11 +31,11 @@ RUNNER="{{RUNNER_PATH}}"
    - Set `SCOPE` and `EFFORT`. Only block for inputs that remain undetectable.
 2. Run pre-flight checks (see `references/workflow.md` §1.5).
 3. Build prompt from `references/prompts.md` (Working Tree or Branch Review Prompt), following the Placeholder Injection Guide.
-4. Start round 1 with `node "$RUNNER" start --working-dir "$PWD" --effort "$EFFORT"`.
+4. Start round 1: `node "$RUNNER" init --skill-name codex-impl-review --working-dir "$PWD"` to create session, then `node "$RUNNER" start "$SESSION_DIR" --effort "$EFFORT"`.
 5. Poll with adaptive intervals (Round 1: 60s/60s/30s/15s..., Round 2+: 30s/15s...). After each poll, report **specific activities** from poll output (e.g. which files Codex is reading, what topic it is analyzing). See `references/workflow.md` for parsing guide. NEVER report generic "Codex is running" — always extract concrete details.
 6. Parse issue list with `references/output-format.md`.
 7. Fix valid issues in code; rebut invalid findings with evidence.
-8. Resume debate via `--thread-id` until `APPROVE`, stalemate, or hard cap (5 rounds).
+8. Resume debate via `node "$RUNNER" resume "$SESSION_DIR"` until `APPROVE`, stalemate, or hard cap (5 rounds).
 9. Return final review summary, residual risks, and recommended next steps.
 
 ### Effort Level Guide

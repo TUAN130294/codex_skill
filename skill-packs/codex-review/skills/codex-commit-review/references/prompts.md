@@ -118,7 +118,7 @@ You are Codex acting as an equal peer reviewer of commit messages. Another revie
 You are reviewing commit message(s) independently. Codex is reviewing the same commits separately — you will NOT see their findings until later.
 
 ## INFORMATION BARRIER
-- Do NOT read $STATE_DIR/review.md or any Codex output.
+- Do NOT read $SESSION_DIR/review.md or any Codex output.
 - Form your OWN conclusions based on the diff and message text.
 - Commit to specific positions.
 
@@ -148,7 +148,7 @@ Run `{DIFF_CONTEXT}` to read the staged diff. Verify the message accurately desc
 You are reviewing commit message(s) independently. Codex is reviewing the same commits separately — you will NOT see their findings until later.
 
 ## INFORMATION BARRIER
-- Do NOT read $STATE_DIR/review.md or any Codex output.
+- Do NOT read $SESSION_DIR/review.md or any Codex output.
 - Form your OWN conclusions based on the diff and message text.
 - Commit to specific positions.
 

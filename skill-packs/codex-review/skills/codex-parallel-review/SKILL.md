@@ -30,7 +30,7 @@ RUNNER="{{RUNNER_PATH}}"
    - Announce: "Detected: effort=`$EFFORT` (N files changed). Proceeding — reply to override effort. Review mode: `full-codebase` (default) / `working-tree` / `branch`."
    - Set `EFFORT`. Ask `MODE` only if user doesn't confirm default.
 2. **Launch all 5 reviewers in ONE message** (true parallelism):
-   - Start Codex via runner (background subprocess).
+   - Start Codex via runner (background subprocess): `node "$RUNNER" init --skill-name codex-parallel-review --working-dir "$PWD"` then `node "$RUNNER" start "$SESSION_DIR"`.
    - Spawn 4 `code-reviewer` agents via Agent tool with `run_in_background: true`:
      - Agent 1: correctness + edge cases
      - Agent 2: security (DEEP — OWASP Top 10, secrets, crypto, deps, auth flow)
@@ -41,7 +41,7 @@ RUNNER="{{RUNNER_PATH}}"
 4. **Merge**: deduplicate Claude agents' findings, cross-match vs Codex. Categorize: agreed / claude-only / codex-only / contradictions.
 5. **Apply + Debate**: fix agreed issues. Debate disagreements via Codex thread resume. Max `MAX_ROUNDS` rounds.
 6. **Final Report**: consensus, resolved, unresolved, risk assessment.
-7. **Cleanup**: always `node "$RUNNER" stop "$STATE_DIR"`.
+7. **Cleanup**: always `node "$RUNNER" stop "$SESSION_DIR"`.
 
 ### Effort Level Guide
 | Level    | Depth             | Best for                        | Typical time |

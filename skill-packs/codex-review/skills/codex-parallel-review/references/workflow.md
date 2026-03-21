@@ -42,8 +42,10 @@ Based on mode:
 Build Codex prompt from `references/prompts.md`. Start as background subprocess:
 
 ```bash
-STATE_OUTPUT=$(printf '%s' "$CODEX_PROMPT" | node "$RUNNER" start --working-dir "$PWD" --effort "$EFFORT")
-STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
+INIT_OUTPUT=$(node "$RUNNER" init --skill-name codex-parallel-review --working-dir "$PWD")
+SESSION_DIR=${INIT_OUTPUT#CODEX_SESSION:}
+
+START_OUTPUT=$(printf '%s' "$CODEX_PROMPT" | node "$RUNNER" start "$SESSION_DIR" --effort "$EFFORT")
 ```
 
 ### 2b) Spawn 4 Claude Reviewer Agents
@@ -108,7 +110,7 @@ T=?    All complete → proceed to Merge
 
 ### Poll Codex
 ```bash
-POLL_OUTPUT=$(node "$RUNNER" poll "$STATE_DIR")
+POLL_OUTPUT=$(node "$RUNNER" poll "$SESSION_DIR")
 ```
 
 Adaptive intervals:
@@ -123,12 +125,8 @@ Adaptive intervals:
 - Poll 1: wait 30s
 - Poll 2+: wait 15s
 
-Parse poll output for user reporting:
-- `Codex thinking: "topic"` → Report: "Codex analyzing: {topic}"
-- `Codex running: ...git diff...` → Report: "Codex reading repo diffs"
-- `Codex running: ...cat src/foo.ts...` → Report: "Codex reading `src/foo.ts`"
-
-**Report template:** "Codex [{elapsed}s]: {specific activity}"
+After each poll, report using `SUMMARY:` line from poll stdout.
+**Report template:** `"Codex [{elapsed}s]: {summary}"`
 
 Continue while `POLL:running`. Stop on `completed|failed|timeout|stalled`.
 
@@ -154,7 +152,6 @@ Across the 4 agents, some findings may overlap (e.g., Agent 1 flags a null check
    - **No match in other set** → `claude-only` or `codex-only`
    - **Same file + same location + contradictory assessment** → `contradiction`
 3. Prefer false-negatives over false-positives (mark as unique if unsure).
-4. Parse `THREAD_ID` from poll stdout for debate rounds.
 
 ### 4c) Present Merge Summary
 ```
@@ -187,9 +184,7 @@ For each round:
 
 2. Resume Codex thread:
    ```bash
-   STATE_OUTPUT=$(printf '%s' "$DEBATE_PROMPT" | node "$RUNNER" start \
-     --working-dir "$PWD" --thread-id "$THREAD_ID" --effort "$EFFORT")
-   STATE_DIR=${STATE_OUTPUT#CODEX_STARTED:}
+   START_OUTPUT=$(printf '%s' "$DEBATE_PROMPT" | node "$RUNNER" resume "$SESSION_DIR" --effort "$EFFORT")
    ```
 
 3. Poll (Round 2+ intervals: 30s/15s...).
@@ -205,6 +200,11 @@ For each round:
    - All disagreements resolved → stop debate.
    - Round limit (`MAX_ROUNDS`) reached → stop, report unresolved.
    - Stalemate: same arguments repeated 2 consecutive rounds → stop.
+
+After each debate round, append round summary to `$SESSION_DIR/rounds.json`:
+- Read existing rounds.json or start with empty array `[]`
+- Append: `{ "round": N, "elapsed_seconds": ..., "resolved": ..., "unresolved": ..., "new_findings": ... }`
+- Write back to `$SESSION_DIR/rounds.json`
 
 ### Branch Mode Note
 Commit fixes before each resume. Codex reads `git diff <base>...HEAD` — uncommitted fixes are invisible.
@@ -241,13 +241,35 @@ Commit fixes before each resume. Codex reads `git diff <base>...HEAD` — uncomm
 {residual risk from unresolved items}
 ```
 
+## 6.5) Session Finalization
+
+Write session metadata after the final report:
+
+```bash
+cat > "$SESSION_DIR/meta.json" << METAEOF
+{
+  "skill": "codex-parallel-review",
+  "version": 15,
+  "effort": "$EFFORT",
+  "mode": "$MODE",
+  "rounds": ${DEBATE_ROUNDS:-0},
+  "verdict": "$FINAL_VERDICT",
+  "reviewers": 5,
+  "timing": { "total_seconds": ${ELAPSED_SECONDS:-0} },
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+METAEOF
+echo "Session saved to: $SESSION_DIR"
+```
+
+Report `$SESSION_DIR` path to the user in the final summary.
+
 ## 7) Cleanup
 
 ```bash
-node "$RUNNER" stop "$STATE_DIR"
+node "$RUNNER" stop "$SESSION_DIR"
 ```
 Always run regardless of outcome (success, failure, timeout, stalemate).
-
 ## Error Handling
 
 ### Codex Runner Errors
