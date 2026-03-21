@@ -125,8 +125,8 @@ Adaptive intervals:
 - Poll 1: wait 30s
 - Poll 2+: wait 15s
 
-After each poll, report using `SUMMARY:` line from poll stdout.
-**Report template:** `"Codex [{elapsed}s]: {summary}"`
+After each poll, report using stderr lines which contain timestamped progress events.
+**Report template:** `"Codex [{elapsed}s]: {activity from stderr}"`
 
 Continue while `POLL:running`. Stop on `completed|failed|timeout|stalled`.
 

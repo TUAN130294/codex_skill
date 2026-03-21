@@ -413,10 +413,8 @@ function parseJsonl(stateDir, lastLineCount, elapsed, processAlive, timeoutVal, 
     }
   }
 
-  // Parse NEW lines for progress events + build activity summary
+  // Parse NEW lines for progress events → stderr only (Claude Code parses these)
   const stderrLines = [];
-  const activities = [];
-  let completedCount = 0;
   const newLines = allLines.slice(lastLineCount);
   for (const rawLine of newLines) {
     const line = rawLine.trim();
@@ -437,37 +435,16 @@ function parseJsonl(stateDir, lastLineCount, elapsed, processAlive, timeoutVal, 
       let text = item.text || "";
       if (text.length > 150) text = text.slice(0, 150) + "...";
       stderrLines.push(`[${elapsed}s] Codex thinking: ${text}`);
-      // Activity summary: shorter version
-      let summaryText = item.text || "";
-      if (summaryText.length > 100) summaryText = summaryText.slice(0, 100) + "...";
-      activities.push(`analyzing: ${summaryText}`);
     } else if (t === "item.started" && itemType === "command_execution") {
       stderrLines.push(`[${elapsed}s] Codex running: ${item.command || ""}`);
-      const cmd = item.command || "";
-      if (cmd.includes("cat ") || cmd.includes("head ")) {
-        const file = cmd.split(/\s+/).pop();
-        activities.push(`reading: ${file}`);
-      } else if (cmd.includes("rg ") || cmd.includes("grep ")) {
-        const match = cmd.match(/['"]([^'"]+)['"]/);
-        activities.push(`searching for: ${match ? match[1] : "pattern"}`);
-      } else if (cmd.includes("git diff")) {
-        activities.push("reading git diff");
-      } else {
-        activities.push(`running: ${cmd.slice(0, 80)}`);
-      }
     } else if (t === "item.completed" && itemType === "command_execution") {
       stderrLines.push(`[${elapsed}s] Codex completed: ${item.command || ""}`);
-      completedCount++;
     } else if (t === "item.completed" && itemType === "file_change") {
       for (const c of (item.changes || [])) {
         stderrLines.push(`[${elapsed}s] Codex changed: ${c.path || "?"} (${c.kind || "?"})`);
       }
     }
   }
-
-  const summary = activities.length > 0
-    ? activities.slice(-3).join("; ")
-    : (completedCount > 0 ? `completed ${completedCount} commands` : "thinking...");
 
   function sanitizeMsg(s) {
     if (s == null) return "unknown error";
@@ -506,7 +483,7 @@ function parseJsonl(stateDir, lastLineCount, elapsed, processAlive, timeoutVal, 
     stdoutParts.push(`POLL:running:${elapsed}s`);
   }
 
-  return { stdoutOutput: stdoutParts.join("\n"), stderrLines, summary, extractedThreadId };
+  return { stdoutOutput: stdoutParts.join("\n"), stderrLines, extractedThreadId };
 }
 
 // ============================================================
@@ -974,7 +951,7 @@ function cmdPoll(argv) {
     : 0;
 
   // Parse JSONL
-  let { stdoutOutput: pollOutput, stderrLines, summary, extractedThreadId } = parseJsonl(
+  let { stdoutOutput: pollOutput, stderrLines, extractedThreadId } = parseJsonl(
     stateDir, lastLineCount, elapsed, processAlive, timeoutVal, state
   );
 
@@ -1022,11 +999,6 @@ function cmdPoll(argv) {
     stall_count: newStallCount,
     last_poll_at: now,
   });
-
-  // Append SUMMARY when still running
-  if (pollStatus === "running") {
-    pollOutput += `\nSUMMARY:${summary}`;
-  }
 
   process.stdout.write(pollOutput + "\n");
   return EXIT_SUCCESS;

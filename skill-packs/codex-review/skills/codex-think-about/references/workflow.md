@@ -70,14 +70,20 @@ Adaptive intervals — start slow, speed up (longer than other skills due to web
 - Poll 2: wait 30s
 - Poll 3+: wait 15s
 
-After each poll, report **specific activities** to the user using the `SUMMARY:` line from poll stdout.
+After each poll, report **specific activities** to the user by parsing stderr lines. Stderr contains timestamped progress events like `[Ns] Codex thinking: ...`, `[Ns] Codex running: ...`, `[Ns] Codex completed: ...`. Use these to build a specific, informative status update.
 
 **Poll stdout format:**
 - Line 1: `POLL:{status}:{elapsed}[:{exit_code}:{details}]`
 - Line 2 (if completed): `THREAD_ID:{id}`
-- Line 2 (if running): `SUMMARY:{activity description}`
 
-**Report template:** `"Codex [{elapsed}s]: {summary}"` — read the SUMMARY line and report it directly.
+**Poll stderr format (progress events):**
+- `[{elapsed}s] Codex is thinking...` — Codex started a new turn
+- `[{elapsed}s] Codex thinking: {reasoning text}` — Codex reasoning about something
+- `[{elapsed}s] Codex running: {command}` — Codex executing a command
+- `[{elapsed}s] Codex completed: {command}` — Codex finished a command
+- `[{elapsed}s] Codex changed: {path} ({kind})` — Codex modified a file (see Step 4.5 warning)
+
+**Report template:** Parse the stderr lines and report what Codex is actually doing. Example: `"Codex [90s]: researching WebSocket vs SSE tradeoffs, reading docs"`
 
 **WARNING notes:**
 - `Codex changed: <path> (<kind>)` → **WARNING: Codex modified file `<path>`** — see Step 4.5

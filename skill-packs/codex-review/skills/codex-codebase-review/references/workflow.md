@@ -165,8 +165,8 @@ Adaptive intervals:
 - Poll 3: wait 30s
 - Poll 4+: wait 15s
 
-After each poll, report using `SUMMARY:` line from poll stdout.
-**Report template:** `"Chunk {N}/{TOTAL} [{name}] — Codex [{elapsed}s]: {summary}"`
+After each poll, report using stderr lines which contain timestamped progress events like `[Ns] Codex thinking: ...`, `[Ns] Codex running: ...`, `[Ns] Codex completed: ...`.
+**Report template:** `"Chunk {N}/{TOTAL} [{name}] — Codex [{elapsed}s]: {activity from stderr}"`
 
 Continue while `POLL:running`. Stop on `completed|failed|timeout|stalled`.
 
