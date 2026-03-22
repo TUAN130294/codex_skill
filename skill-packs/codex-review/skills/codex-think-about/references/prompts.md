@@ -4,7 +4,7 @@
 
 | Placeholder | Source | Required | Default |
 |-------------|--------|----------|---------|
-| `{QUESTION}` | User's question or topic | Yes | — |
+| `{QUESTION}` | Confirmed sharpened question from step 1, or original question if sharpening was skipped | Yes | — |
 | `{PROJECT_CONTEXT}` | Project description and tech stack | No | "Not specified — infer from codebase" |
 | `{RELEVANT_FILES}` | Files relevant to the question | No | "None specified" |
 | `{CONSTRAINTS}` | Scope and constraints | No | "None specified" |

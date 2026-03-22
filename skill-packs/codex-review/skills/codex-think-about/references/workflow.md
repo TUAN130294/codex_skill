@@ -1,10 +1,11 @@
 # Think-About Workflow
 
 ## 1) Inputs
-- User question/topic.
+- User question/topic (may be vague — SKILL.md step 1 runs question-sharpening before this workflow begins).
+- Question sharpening output: confirmed `{QUESTION}` from SKILL.md step 1 (sharpened or original if sharpening was skipped).
+- Reasoning effort level.
 - Scope and constraints.
 - Relevant files or external facts.
-- Reasoning effort level.
 
 ## 2) Start Round 1
 
@@ -29,6 +30,8 @@ SKILLS_DIR="$(dirname "$(dirname "$RUNNER")")"
 PROMPT=$(echo '{"QUESTION":"...","PROJECT_CONTEXT":"...","RELEVANT_FILES":"...","CONSTRAINTS":"..."}' | \
   node "$RUNNER" render --skill codex-think-about --template round1 --skills-dir "$SKILLS_DIR")
 ```
+
+`{QUESTION}` is the confirmed sharpened question from SKILL.md step 1 (or the original question if sharpening was skipped).
 
 `{OUTPUT_FORMAT}` is auto-injected by the render command from `references/output-format.md`.
 
