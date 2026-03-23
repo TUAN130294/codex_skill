@@ -62,8 +62,15 @@ USE your network access to:
 4. Look up version-specific info (latest releases, breaking changes, deprecations).
 5. Check real-world adoption, known issues, and alternatives.
 
-How to search: use `curl -sS` to fetch web pages and pipe through text extraction.
+How to search: use `curl -sS --connect-timeout 5 --max-time 15` to fetch web pages and pipe through text extraction.
 Do NOT use `wget` (it writes files by default). Do NOT use `curl -o` or redirect to files.
+
+**Network Failure Rules**:
+- If curl returns empty output or error (e.g. "Could not resolve host", "Connection timed out"): do NOT retry the same URL.
+- If 2+ consecutive curl attempts fail: STOP all web fetching immediately. Fall back to local analysis using your own knowledge and project files.
+- You MUST produce your full analysis output even if ALL web requests fail. Note which claims lack web citations.
+- NEVER silently stop after a failed request — always continue to your output.
+
 Prefer official sources (docs, RFCs, GitHub repos, reputable tech blogs).
 For each factual claim, include the source URL in your output.
 
@@ -132,6 +139,7 @@ findings until later. Form your own position first.
 ```
 ## REMINDER: You have network access for research but must NOT modify any project files.
 ## Your sandbox is danger-full-access — used ONLY for web search, NOT for file writes.
+## REMINDER: If curl commands fail or return empty, do NOT retry. Fall back to analysis using existing research.
 
 ## Points I Agree With
 {AGREED_POINTS}
@@ -146,9 +154,11 @@ findings until later. Form your own position first.
 {CONTINUE_OR_CONSENSUS_OR_STALEMATE}
 
 ## Your Turn
-Research any challenged claims. Find NEW sources to support or revise your
-position. Address disagreements directly with evidence. Respond in required
-output format.
+Address disagreements directly with evidence. Cite existing sources from Round 1.
+Only attempt NEW web fetches if a specific challenged claim requires fresh evidence
+— limit to 2 new fetches maximum. If fetches fail, rely on existing research and
+reasoning. ALWAYS produce your full response even if network is unavailable.
+Respond in required output format.
 
 ## Required Output Format
 {OUTPUT_FORMAT}

@@ -859,7 +859,7 @@ function parseJsonlV13(stateDir, lastLineCount, elapsed, processAlive, timeoutVa
     return {
       json: { status: "running", round: currentRound, elapsed_seconds: elapsed, activities },
       extractedThreadId,
-      reviewText: "",
+      reviewText,
       terminal: false,
     };
   }
@@ -1315,6 +1315,7 @@ function cmdStart(argv) {
       effort: { type: "string", default: "high" },
       timeout: { type: "string", default: "3600" },
       sandbox: { type: "string", default: "read-only" },
+      "stall-threshold": { type: "string", default: "" },
     },
     strict: true,
   });
@@ -1322,6 +1323,12 @@ function cmdStart(argv) {
   const effort = values.effort || "high";
   const timeout = parseInt(values.timeout || "3600", 10);
   const sandbox = values.sandbox || "read-only";
+  const stallThreshold = parseInt(values["stall-threshold"] || "12", 10);
+
+  if (isNaN(stallThreshold) || stallThreshold < 1) {
+    jsonError("--stall-threshold must be a positive integer (>= 1)", "INVALID_INPUT");
+    return EXIT_ERROR;
+  }
 
   const VALID_SANDBOXES = ["read-only", "workspace-write", "danger-full-access"];
   if (!VALID_SANDBOXES.includes(sandbox)) {
@@ -1418,6 +1425,8 @@ function cmdStart(argv) {
       last_line_count: 0,
       stall_count: 0,
       last_poll_at: 0,
+      stall_threshold: stallThreshold,
+      stall_recovery_count: 0,
     });
 
     // Create rounds.json
@@ -1465,6 +1474,8 @@ function cmdResume(argv) {
     options: {
       effort: { type: "string", default: "high" },
       timeout: { type: "string", default: "3600" },
+      "stall-threshold": { type: "string", default: "" },
+      recovery: { type: "boolean", default: false },
     },
     strict: true,
   });
@@ -1488,6 +1499,19 @@ function cmdResume(argv) {
     jsonError(`Cannot read state.json: ${e.message}`, "IO_ERROR");
     return EXIT_ERROR;
   }
+
+  const explicitThreshold = values["stall-threshold"];
+  const stallThreshold = explicitThreshold ? parseInt(explicitThreshold, 10) : (prevState.stall_threshold || 12);
+
+  if (isNaN(stallThreshold) || stallThreshold < 1) {
+    jsonError("--stall-threshold must be a positive integer (>= 1)", "INVALID_INPUT");
+    return EXIT_ERROR;
+  }
+
+  const recoveryCount = prevState.stall_recovery_count || 0;
+  const isRecovery = values.recovery;
+  const newRecoveryCount = isRecovery ? recoveryCount + 1 : recoveryCount;
+  const effectiveStallThreshold = isRecovery ? Math.min(stallThreshold, 8) : stallThreshold;
 
   const threadId = prevState.thread_id || "";
   const resolvedWorkingDir = prevState.working_dir || "";
@@ -1598,6 +1622,9 @@ function cmdResume(argv) {
       last_line_count: 0,
       stall_count: 0,
       last_poll_at: 0,
+      last_output_at: now,
+      stall_recovery_count: newRecoveryCount,
+      stall_threshold: effectiveStallThreshold,
     });
 
     // Append new round to rounds.json
@@ -1654,6 +1681,7 @@ function cmdPoll(argv) {
   const startedAt = state.started_at || Math.floor(Date.now() / 1000);
   const lastLineCount = state.last_line_count || 0;
   const stallCount = state.stall_count || 0;
+  const stallThresholdFromState = state.stall_threshold || 12;
 
   const now = Math.floor(Date.now() / 1000);
   const elapsed = now - startedAt;
@@ -1672,23 +1700,53 @@ function cmdPoll(argv) {
     ? stallCount + 1
     : 0;
 
+  // Track when output last changed for accurate stall duration
+  const lastOutputAt = currentLineCount === lastLineCount
+    ? (state.last_output_at || startedAt)
+    : now;
+
   // Parse JSONL → structured JSON
   let result = parseJsonlV13(stateDir, lastLineCount, elapsed, processAlive, timeoutVal, state);
 
   // Override: stall/timeout detection for still-running process
   if (!result.terminal) {
     if (elapsed >= timeoutVal) {
+      // Recover partial output if available
+      let partialReview = null;
+      if (result.reviewText) {
+        const skillName = state.skill_name || "";
+        partialReview = parseOutputMarkdown(result.reviewText, skillName);
+        atomicWrite(path.join(stateDir, "review.md"), result.reviewText);
+      }
+
       result = {
-        json: { status: "timeout", round: state.round || 1, elapsed_seconds: elapsed, exit_code: EXIT_TIMEOUT, error: `Timeout after ${timeoutVal}s`, review: null, activities: result.json.activities },
+        json: { status: "timeout", round: state.round || 1, elapsed_seconds: elapsed, exit_code: EXIT_TIMEOUT, error: `Timeout after ${timeoutVal}s`, review: partialReview, activities: result.json.activities },
         extractedThreadId: result.extractedThreadId,
-        reviewText: "",
+        reviewText: result.reviewText,
         terminal: true,
       };
-    } else if (newStallCount >= 12 && processAlive) {
+    } else if (newStallCount >= stallThresholdFromState && processAlive) {
+      // Recover partial output if available
+      let partialReview = null;
+      if (result.reviewText) {
+        const skillName = state.skill_name || "";
+        partialReview = parseOutputMarkdown(result.reviewText, skillName);
+        atomicWrite(path.join(stateDir, "review.md"), result.reviewText);
+      }
+
       result = {
-        json: { status: "stalled", round: state.round || 1, elapsed_seconds: elapsed, exit_code: EXIT_STALLED, error: "No new output for ~3 minutes", review: null, activities: result.json.activities },
+        json: {
+          status: "stalled",
+          round: state.round || 1,
+          elapsed_seconds: elapsed,
+          exit_code: EXIT_STALLED,
+          error: `No new output for ~${Math.round((now - lastOutputAt) / 60)} minutes`,
+          review: partialReview,
+          recoverable: !!result.extractedThreadId && (state.stall_recovery_count || 0) < 1,
+          activities: result.json.activities,
+        },
         extractedThreadId: result.extractedThreadId,
-        reviewText: "",
+        reviewText: result.reviewText || "",
         terminal: true,
       };
     }
@@ -1795,6 +1853,7 @@ function cmdPoll(argv) {
   updateState(stateDir, {
     last_line_count: currentLineCount,
     stall_count: newStallCount,
+    last_output_at: lastOutputAt,
     last_poll_at: now,
   });
 

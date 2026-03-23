@@ -159,7 +159,12 @@ node "$RUNNER" stop "$SESSION_DIR"
 ```
 **Always run cleanup**, even on failure/timeout.
 
-**Errors**: Poll `failed` → retry once; `timeout`/`stalled` → report partial results from `review.raw_markdown`, suggest lower effort; `error` → report to user. Start/resume `error` with `CODEX_NOT_FOUND` → tell user to install codex. Always run cleanup.
+**Errors**:
+- `failed` → retry once (re-poll after 15s).
+- `timeout` → report partial results from `review.raw_markdown`, suggest lower effort. Run cleanup.
+- `stalled` → if `recoverable === true`: `stop` → prepend recovery note → `resume --recovery` → poll (30s, 15s+). If `recoverable === false`: report partial results, suggest lower effort. Run cleanup.
+- Start/resume `CODEX_NOT_FOUND` → tell user to install codex.
+- **Cleanup sequencing**: run `finalize` + `stop` ONLY after recovery resolves (success or second failure). Do NOT finalize before recovery attempt.
 
 ## Rules
 - Keep roles as peers; no reviewer/implementer framing.
