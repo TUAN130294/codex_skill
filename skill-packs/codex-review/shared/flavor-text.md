@@ -68,31 +68,21 @@
 - `> 💣 REBUTTAL! Codex cần học lại phần này`
 - `> 😏 Oh Codex, sweet summer child... để tôi chỉ cho`
 
-## 6. LATE_ROUND_3
-> Trigger: Round 3 bắt đầu
+## 6. LATE_ROUND
+> Trigger: Round >= 3 bắt đầu (dùng `{ROUND}` cho số round thực tế)
 
-- `> 😤 Round 3 rồi! Codex cũng dai thật`
-- `> 🥊 Round 3 — thằng này không chịu thua!`
-- `> 💪 Vào round 3. Ai bền bỉ hơn sẽ thắng!`
-- `> 🔥 Round 3! Cuộc chiến này bắt đầu nóng lên rồi`
+- `> 😤 Round {ROUND} rồi! Codex cũng dai thật`
+- `> 🥊 Round {ROUND} — thằng này không chịu thua!`
+- `> 💪 Vào round {ROUND}. Ai bền bỉ hơn sẽ thắng!`
+- `> 🔥 Round {ROUND}! Cuộc chiến này bắt đầu nóng lên rồi`
+- `> 😤😤 Round {ROUND}?! Thằng Codex này cứng đầu thật sự luôn`
+- `> 🥵 Round {ROUND} rồi! Ai cho phép cái debate này kéo dài thế này?!`
+- `> 💀 Round {ROUND}... chưa consensus thì chưa dừng!`
+- `> 🎯 Round {ROUND}! OK Codex, lần này settle this once and for all`
+- `> 🥊 Round {ROUND}! Tôi sẽ không dừng cho đến khi consensus`
+- `> 🔥 Round {ROUND}! Cãi bao lâu cũng cãi — tôi không ngại`
 
-## 7. LATE_ROUND_4
-> Trigger: Round 4 bắt đầu
-
-- `> 😤😤 Round 4?! Thằng Codex này cứng đầu thật sự luôn`
-- `> 🥵 Round 4 rồi! Ai cho phép cái debate này kéo dài thế này?!`
-- `> 💀 Round 4... một trong hai đứa chúng tôi phải chết ở đây`
-- `> 🎯 Round 4! OK Codex, lần này settle this once and for all`
-
-## 8. LATE_ROUND_5
-> Trigger: Round 5 (final round — hard cap)
-
-- `> 🏁 Round 5 — FINAL ROUND! Hết giờ rồi, phải kết thúc thôi!`
-- `> ⚰️ Round 5! Đây là cơ hội cuối cùng. All in!`
-- `> 🔔 DING DING DING! Round cuối! Không có round 6 đâu nhé!`
-- `> 💀 Last round. Codex, nói lời cuối đi... à quên, nó là AI 😏`
-
-## 9. APPROVE_VICTORY
+## 7. APPROVE_VICTORY
 > Trigger: Codex approve (verdict === "APPROVE")
 
 - `> 🏆 APPROVE! Codex đầu hàng rồi! Ez game ez life~`
@@ -104,7 +94,7 @@
 - `> 🥇 APPROVE! Sau bao nhiêu rounds, cuối cùng Codex cũng phải gửi 😏`
 - `> 🎯 Victory royale! Codex đã approve. Pack up, let's go home!`
 
-## 10. STALEMATE_DRAW
+## 8. STALEMATE_DRAW
 > Trigger: Stalemate detected (convergence.stalemate === true)
 
 - `> 🤝 Hòa... cả hai đều không chịu nhường. Đúng chất dev cãi nhau`
@@ -116,19 +106,7 @@
 - `> 🤝 Hòa. Giống như merge conflict — cần người thứ 3 resolve`
 - `> 😤 Stalemate! Điển hình của AI cãi nhau: không ai back down`
 
-## 11. HARD_CAP
-> Trigger: Round >= 5, forced exit
-
-- `> ⏰ Hết 5 rounds rồi! Không có overtime đâu nhé!`
-- `> 🔔 Time's up! 5 rounds là quá đủ để cãi nhau rồi`
-- `> ⏰ Hard cap! Như bóng đá — hết giờ là hết, không có bù giờ`
-- `> 🏁 5 rounds đã qua. Tôi mệt rồi, Codex chắc cũng mệt (nếu nó biết mệt)`
-- `> ⏰ Cap reached! Như game — hết lượt là hết, không có hack thêm round`
-- `> 💀 5 rounds. Như sprint retrospective kéo dài quá — STOP!`
-- `> 🔔 Hết giờ! Tổng kết thôi — không cãi nhau nữa!`
-- `> ⏰ 5/5 rounds. OK cả hai đều đã có nói, giờ kết thúc đi`
-
-## 12. FINAL_SUMMARY
+## 9. FINAL_SUMMARY
 > Trigger: Session kết thúc, hiện summary (Step 10 Final Output)
 
 - `> 📊 Review xong! Hy vọng code giờ đã tốt hơn — nhờ tôi, không phải Codex 😏`
@@ -140,7 +118,7 @@
 - `> 📋 Review done! Giờ đi deploy thôi... à khoan, test trước đã 😅`
 - `> 🏁 Xong rồi! Một session nữa đã hoàn thành. See you next review!`
 
-## 13. THINK_PEER
+## 10. THINK_PEER
 > Trigger: think-about debate — khi cross-analysis (Step 6)
 
 - `> 🧠 Hmm, Codex nghĩ khác tôi. Interesting... để debate thôi`
@@ -152,7 +130,7 @@
 - `> 🧠 Codex có góc nhìn khác. Không sao — diverse perspectives là tốt`
 - `> 💭 Để tôi so sánh ý kiến của tôi với Codex... may ra học được gì`
 
-## 14. THINK_AGREE
+## 11. THINK_AGREE
 > Trigger: think-about — Claude đồng ý với Codex
 
 - `> 🤝 OK tôi đồng ý với Codex điểm này. Credit where credit's due`
@@ -162,7 +140,7 @@
 - `> 🤝 Agreement! Khi 2 AI đồng ý thì chắc 99% là đúng rồi 😏`
 - `> ✅ Codex và tôi cùng kết luận. Trustworthy answer đây!`
 
-## 15. THINK_DISAGREE
+## 12. THINK_DISAGREE
 > Trigger: think-about — Claude bất đồng với Codex
 
 - `> ❌ Không đồng ý! Codex sai rồi — đây là lý do`
@@ -172,7 +150,7 @@
 - `> ❌ Disagree! Không phải tôi không tôn trọng Codex — nhưng lần này nó sai`
 - `> 🔥 Tôi không thể đồng ý được. Để tôi giải thích tại sao...`
 
-## 16. PARALLEL_LAUNCH
+## 13. PARALLEL_LAUNCH
 > Trigger: parallel-review — Launch 5 reviewers (Step 2)
 
 - `> 🚀 Deploying 5 reviewers! 4 Claude agents + Codex — all at once!`
@@ -184,7 +162,7 @@
 - `> 🚀 Team assembled! Mỗi reviewer một nhiệm vụ — không ai thoát`
 - `> ⚡ 5 parallel reviews starting NOW! Nhanh hơn, mạnh hơn, nhiều hơn!`
 
-## 17. PARALLEL_MERGE
+## 14. PARALLEL_MERGE
 > Trigger: parallel-review — Merge findings (Step 4)
 
 - `> 🔀 Merging findings từ 5 reviewers... như git merge nhưng không conflict (hy vọng)`
@@ -194,7 +172,7 @@
 - `> 🔀 Combining findings... như Exodia — ghép các mảnh lại thành 1`
 - `> 📊 Merge phase! Xem có bao nhiêu findings trùng nhau`
 
-## 18. CHUNK_PROGRESS
+## 15. CHUNK_PROGRESS
 > Trigger: codebase-review — Mỗi chunk hoàn thành (Step 4g)
 
 - `> 📦 Chunk {N}/{TOTAL} [{CHUNK}] xong! Tiến hành chunk tiếp theo~`
@@ -206,7 +184,7 @@
 - `> 📦 [{CHUNK}] done! {N} trên {TOTAL} — halfway là halfway~`
 - `> 🎯 {N}/{TOTAL} chunks reviewed. Steady pace!`
 
-## 19. CHUNK_CROSS
+## 16. CHUNK_CROSS
 > Trigger: codebase-review — Cross-cutting analysis (Step 5)
 
 - `> 🔍 Cross-cutting analysis! Giờ để tôi tìm những pattern ẩn giữa các modules`

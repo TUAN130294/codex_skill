@@ -36,13 +36,13 @@ json_esc() { printf '%s' "$1" | node -e 'let d="";process.stdin.on("data",c=>d+=
 ### 1. Collect Inputs
 Auto-detect mode and effort, announce defaults before asking anything.
 
-**Mode**: `full-codebase` (default), `working-tree`, or `branch`. Ask user for max debate rounds (default `MAX_ROUNDS=3`).
+**Mode**: `full-codebase` (default), `working-tree`, or `branch`.
 
 **Effort detection per mode:**
 - `full-codebase`: count source files (`find . -type f \( -name "*.js" -o -name "*.ts" -o -name "*.py" -o ... \) | grep -v node_modules | wc -l`) — <50 → `medium`, 50–200 → `high`, >200 → `xhigh`.
 - `working-tree`/`branch`: `git diff --name-only | wc -l` — <10 → `medium`, 10–50 → `high`, >50 → `xhigh`; default `high`.
 
-Announce: `"Detected: mode=$MODE, effort=$EFFORT (N files). Proceeding — reply to override."` Set `EFFORT`, `MAX_ROUNDS`.
+Announce: `"Detected: mode=$MODE, effort=$EFFORT (N files). Proceeding — reply to override."` Set `EFFORT`.
 
 **Prepare context per mode:**
 - **Full-codebase**: `FILES=$(find . ...)` — list all source files. No DIFF needed.
@@ -167,7 +167,7 @@ Collect results from all 4 background agents as they finish. **If an agent fails
 
 Apply agreed issues immediately. Record fix evidence. **Branch mode**: commit fixes before debate (`git add` + `git commit`).
 
-**Debate loop** (max `MAX_ROUNDS` rounds):
+**Debate loop** (until consensus or stalemate):
 
 Render debate prompt:
 ```bash
@@ -187,12 +187,11 @@ Validate JSON. **Go back to step 3 (Poll).** Parse `RESPONSE-{N}` blocks: `accep
 |---|-----------|--------|
 | 1 | All disputed/claude-only/codex-only findings resolved | **EXIT loop** → Final Report |
 | 2 | `poll_json.convergence.stalemate === true` | **EXIT loop** → Final Report (stalemate branch) |
-| 3 | Current round >= `MAX_ROUNDS` | **EXIT loop** → Final Report (round cap) |
-| 4 | Unresolved findings remain | **CONTINUE** → render debate prompt + resume |
+| 3 | Unresolved findings remain | **CONTINUE** → render debate prompt + resume |
 
-**CRITICAL**: Do NOT exit the loop unless condition 1, 2, or 3 is met.
+**CRITICAL**: Do NOT exit the loop unless condition 1 or 2 is met. There is no round cap — debate continues until consensus or stalemate.
 
-Exit: all resolved, round limit (`MAX_ROUNDS`), or `convergence.stalemate === true`.
+Exit: all resolved or `convergence.stalemate === true`.
 
 ### 6. Final Report
 
@@ -204,7 +203,7 @@ Exit: all resolved, round limit (`MAX_ROUNDS`), or `convergence.stalemate === tr
 | Agreed | {A} |
 | Resolved via debate | {R} |
 | Unresolved | {U} |
-| Debate rounds | {D}/{MAX_ROUNDS} |
+| Debate rounds | {D} |
 | Verdict | CONSENSUS / PARTIAL / STALEMATE |
 
 Present: Consensus Issues (grouped by severity with fixes), Resolved Disagreements (who conceded, why), Unresolved Disagreements table (both sides + recommendation), Risk Assessment (residual risk from unresolved items).
@@ -241,15 +240,15 @@ Load `references/flavor-text.md` at skill start. Pick 1 random message per trigg
 - **Step 4** (merge findings): `PARALLEL_MERGE`
 - **Step 5** (each valid fix applied): `APPLY_FIX`
 - **Step 5** (before debate resume): `SEND_REBUTTAL`
-- **Step 5** (round == 3): `LATE_ROUND_3`
-- **Step 5** (all resolved / consensus): `APPROVE_VICTORY` — (stalemate): `STALEMATE_DRAW` — (round cap): `HARD_CAP`
+- **Step 5** (round >= 3): `LATE_ROUND`
+- **Step 5** (all resolved / consensus): `APPROVE_VICTORY` — (stalemate): `STALEMATE_DRAW`
 - **Step 6** (final report): `FINAL_SUMMARY`
 
 ## Rules
 - All 4 Claude agents and Codex review independently — no cross-contamination before merge.
 - Codex reviews only; it does not edit files.
 - Claude applies fixes for agreed and accepted issues.
-- Max debate rounds enforced (default 3); user can override.
+- Debate continues until consensus or stalemate — no round cap.
 - On stalemate, present both sides and defer to user.
 - If agents or Codex fail, degrade gracefully (partial coverage).
 - **Runner manages all session state** — do NOT manually read/write `rounds.json`, `meta.json`, or `prompt.txt` in the session directory.

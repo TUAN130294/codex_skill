@@ -125,15 +125,13 @@ Validate JSON. Sandbox mode persists via thread — do NOT pass `--sandbox` on r
 |---|-----------|--------|
 | 1 | Claude determines consensus (both sides converged, no significant disagreements) | **EXIT loop** → go to Completion step |
 | 2 | `poll_json.convergence.stalemate === true` or same disagreement set for 2 consecutive rounds | **EXIT loop** → go to Completion step (stalemate branch) |
-| 3 | Current round >= 5 | **EXIT loop** → go to Completion step (hard cap) |
-| 4 | Significant disagreements remain or new perspectives emerged | **CONTINUE** → go back to Cross-Analysis step |
+| 3 | Significant disagreements remain or new perspectives emerged | **CONTINUE** → go back to Cross-Analysis step |
 
-**CRITICAL**: Do NOT exit the loop unless condition 1, 2, or 3 is met. Codex `suggested_status` is advisory — override if evidence warrants continued debate.
+**CRITICAL**: Do NOT exit the loop unless condition 1 or 2 is met. Codex `suggested_status` is advisory — override if evidence warrants continued debate. There is no round cap — debate continues until consensus or stalemate.
 
 ### 8. Completion + Stalemate
 - `review.suggested_status === "CONSENSUS"` → done.
-- `review.suggested_status === "STALEMATE"` or same disagreement set for 2 consecutive rounds → list deadlocked points, both sides' arguments, recommend which to favor. Round < 5 → ask user: accept synthesis or force one more round. Round ≥ 5 → force final synthesis.
-- **Hard cap: 5 rounds.** Force final synthesis with unresolved points as open questions.
+- `review.suggested_status === "STALEMATE"` or same disagreement set for 2 consecutive rounds → list deadlocked points, both sides' arguments, recommend which to favor. Ask user to decide.
 
 ### 9. Final Output
 
@@ -192,8 +190,8 @@ Load `references/flavor-text.md` at skill start. Pick 1 random message per trigg
 - **Step 6** (cross-analysis start): `THINK_PEER`
 - **Step 6** (per agreement found): `THINK_AGREE`
 - **Step 6** (per disagreement found): `THINK_DISAGREE`
-- **Step 7** (round == 3): `LATE_ROUND_3` — (round == 4): `LATE_ROUND_4` — (round == 5): `LATE_ROUND_5`
-- **Step 8** (consensus): `APPROVE_VICTORY` — (stalemate): `STALEMATE_DRAW` — (hard cap): `HARD_CAP`
+- **Step 7** (round >= 3): `LATE_ROUND`
+- **Step 8** (consensus): `APPROVE_VICTORY` — (stalemate): `STALEMATE_DRAW`
 - **Step 9** (final output): `FINAL_SUMMARY`
 
 ## Rules

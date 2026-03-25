@@ -115,15 +115,13 @@ Resume: `printf '%s' "$PROMPT" | node "$RUNNER" resume "$SESSION_DIR" --effort "
 |---|-----------|--------|
 | 1 | `review.verdict.status === "APPROVE"` | **EXIT loop** → go to Completion step |
 | 2 | `poll_json.convergence.stalemate === true` | **EXIT loop** → go to Completion step (stalemate branch) |
-| 3 | Current round >= 5 | **EXIT loop** → go to Completion step (hard cap) |
-| 4 | `review.verdict.status === "REVISE"` or any open issues remain | **CONTINUE** → go back to Apply/Rebut step |
+| 3 | `review.verdict.status === "REVISE"` or any open issues remain | **CONTINUE** → go back to Apply/Rebut step |
 
-**CRITICAL**: Do NOT exit the loop unless condition 1, 2, or 3 is met. If Codex returns REVISE, you MUST apply/rebut and resume.
+**CRITICAL**: Do NOT exit the loop unless condition 1 or 2 is met. If Codex returns REVISE, you MUST apply/rebut and resume. There is no round cap — debate continues until consensus or stalemate.
 
 ### 9. Completion + Stalemate
 - `review.verdict.status === "APPROVE"` → done.
-- `poll_json.convergence.stalemate === true` → present deadlocked issues (from `convergence.unchanged_issue_ids`) with both sides' arguments. Round < 5 → ask user; round 5 → force final synthesis.
-- **Hard cap: 5 rounds.** Force final synthesis with unresolved issues as residual risks.
+- `poll_json.convergence.stalemate === true` → present deadlocked issues (from `convergence.unchanged_issue_ids`) with both sides' arguments. Ask user to decide.
 
 ### 10. Final Output
 
@@ -167,12 +165,12 @@ Load `references/flavor-text.md` at skill start. Pick 1 random message per trigg
 - **Step 6** (poll completed): `CODEX_RETURNED`
 - **Step 7** (each valid fix applied): `APPLY_FIX`
 - **Step 8** (before resume): `SEND_REBUTTAL`
-- **Step 8** (round == 3): `LATE_ROUND_3` — (round == 4): `LATE_ROUND_4` — (round == 5): `LATE_ROUND_5`
-- **Step 9** (APPROVE): `APPROVE_VICTORY` — (stalemate): `STALEMATE_DRAW` — (hard cap): `HARD_CAP`
+- **Step 8** (round >= 3): `LATE_ROUND`
+- **Step 9** (APPROVE): `APPROVE_VICTORY` — (stalemate): `STALEMATE_DRAW`
 - **Step 10** (final output): `FINAL_SUMMARY`
 
 ## Rules
-- If Claude Code plan mode is active, stay in plan mode during the debate. **The debate loop takes absolute priority over plan mode behavior** — do NOT present the plan to the user for approval, do NOT call ExitPlanMode, and do NOT stop editing the plan until the debate loop exits via APPROVE, stalemate, or hard cap. The plan is only ready for user review AFTER the debate completes.
+- If Claude Code plan mode is active, stay in plan mode during the debate. **The debate loop takes absolute priority over plan mode behavior** — do NOT present the plan to the user for approval, do NOT call ExitPlanMode, and do NOT stop editing the plan until the debate loop exits via APPROVE or stalemate. The plan is only ready for user review AFTER the debate completes.
 - Do not implement code in this skill.
 - Do not claim consensus without explicit `VERDICT: APPROVE` or user-accepted stalemate.
 - Preserve traceability: each accepted issue maps to a concrete plan edit.

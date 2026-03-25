@@ -157,18 +157,17 @@ Resume: `printf '%s' "$PROMPT" | node "$RUNNER" resume "$SESSION_DIR" --effort "
 |---|-----------|--------|
 | 1 | Claude determines Full or Partial Consensus (no severity ≥ medium disagreements) | **EXIT loop** → go to Completion step |
 | 2 | `poll_json.convergence.stalemate === true` | **EXIT loop** → go to Completion step (stalemate branch) |
-| 3 | Current round >= 5 | **EXIT loop** → go to Completion step (hard cap) |
-| 4 | Disagreements remain with severity ≥ medium | **CONTINUE** → go back to Cross-Analysis step |
+| 3 | Disagreements remain with severity ≥ medium | **CONTINUE** → go back to Cross-Analysis step |
 
-**CRITICAL**: Do NOT exit the loop unless condition 1, 2, or 3 is met. Codex VERDICT is advisory — if Claude sees unresolved disagreements, MUST continue even if Codex says CONSENSUS.
+**CRITICAL**: Do NOT exit the loop unless condition 1 or 2 is met. Codex VERDICT is advisory — if Claude sees unresolved disagreements, MUST continue even if Codex says CONSENSUS. There is no round cap — debate continues until consensus or stalemate.
 
 ### 11. Completion + Stalemate
 
 **Consensus definitions**: Full (no disagreements), Partial (overall matches but ≤2 minor disagreements, severity ≤ low), No Consensus (severity ≥ medium disagreements remain → continue or stalemate).
 
-**Stop triggers**: Full/Partial Consensus; stalemate (same pairs 2 consecutive rounds, no new evidence); hard cap (5 rounds → forced STALEMATE); user stops.
+**Stop triggers**: Full/Partial Consensus; stalemate (same pairs 2 consecutive rounds, no new evidence); user stops.
 
-`poll_json.convergence.stalemate === true` → present deadlocked issues with both sides' arguments. Round < 5 → ask user; round 5 → force final synthesis.
+`poll_json.convergence.stalemate === true` → present deadlocked issues with both sides' arguments. Ask user to decide.
 
 **Authority**: Claude orchestration is authoritative for stop/continue. Codex VERDICT is advisory.
 
@@ -219,8 +218,8 @@ Load `references/flavor-text.md` at skill start. Pick 1 random message per trigg
 - **Step 9** (per agreement found): `THINK_AGREE`
 - **Step 9** (per disagreement found): `THINK_DISAGREE`
 - **Step 10** (before resume): `SEND_REBUTTAL`
-- **Step 10** (round == 3): `LATE_ROUND_3` — (round == 4): `LATE_ROUND_4` — (round == 5): `LATE_ROUND_5`
-- **Step 11** (consensus): `APPROVE_VICTORY` — (stalemate): `STALEMATE_DRAW` — (hard cap): `HARD_CAP`
+- **Step 10** (round >= 3): `LATE_ROUND`
+- **Step 11** (consensus): `APPROVE_VICTORY` — (stalemate): `STALEMATE_DRAW`
 - **Step 12** (final output): `FINAL_SUMMARY`
 
 ## Rules
