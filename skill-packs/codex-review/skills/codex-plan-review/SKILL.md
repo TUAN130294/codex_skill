@@ -45,19 +45,24 @@ SESSION_DIR=${INIT_OUTPUT#CODEX_SESSION:}
 Render template=`round1`, placeholders: `PLAN_PATH`, `USER_REQUEST`, `SESSION_CONTEXT`, `ACCEPTANCE_CRITERIA`.
 Start: `printf '%s' "$PROMPT" | node "$RUNNER" start "$SESSION_DIR" --effort "$EFFORT"`
 
-### 4. Poll -> Apply/Rebut -> Resume Loop
+### 4. Poll -> Check Verdict -> Apply/Rebut -> Resume Loop
+
 Poll: `node "$RUNNER" poll "$SESSION_DIR"`. Report specific activities. (-> `references/protocol.md` for intervals)
 Parse `review.blocks[]` (id, title, severity, category, problem, suggested_fix). Verdict in `review.verdict.status`.
-- Valid issues -> fix plan file, **save before resume** (Codex re-reads).
-- Invalid -> rebut with reasoning.
-Rebuttal template=`rebuttal`, placeholders: `PLAN_PATH`, `SESSION_CONTEXT`, `FIXED_ITEMS`, `DISPUTED_ITEMS`.
-Resume: `printf '%s' "$PROMPT" | node "$RUNNER" resume "$SESSION_DIR" --effort "$EFFORT"`. Back to Poll.
+
+**Check stalemate FIRST, then verdict** (-> `references/protocol.md` § Debate Loop Protocol):
 
 | # | Condition | Action |
 |---|-----------|--------|
-| 1 | verdict === "APPROVE" | EXIT -> step 5 |
-| 2 | convergence.stalemate === true | EXIT -> step 5 (stalemate) |
-| 3 | verdict === "REVISE" or open issues | CONTINUE -> Apply/Rebut |
+| 1 | convergence.stalemate === true | **EXIT** -> step 5 (stalemate). Do NOT render rebuttal. |
+| 2 | verdict === "APPROVE" | **EXIT** -> step 5 |
+| 3 | verdict === "REVISE" or open issues | **CONTINUE** -> sub-steps below |
+
+**If CONTINUE** — all 4 sub-steps are MANDATORY, even if you fix every issue:
+1. **Categorize** each `review.blocks[]` issue: ACCEPT (valid) or DISPUTE (invalid with reasoning).
+2. **Fix** accepted issues -> edit plan file, **save before resume** (Codex re-reads). Invalid -> rebut with reasoning.
+3. **ALWAYS render rebuttal** — template=`rebuttal`. Placeholders: `PLAN_PATH`, `SESSION_CONTEXT`, `FIXED_ITEMS`, `DISPUTED_ITEMS`. If all issues fixed, `DISPUTED_ITEMS` = `"None — all issues addressed"`. Rebuttal is NEVER skipped.
+4. **ALWAYS resume** — `printf '%s' "$PROMPT" | node "$RUNNER" resume "$SESSION_DIR" --effort "$EFFORT"`. Back to **Poll**. Codex MUST re-verify fixes and may find new issues.
 
 ### 5. Completion + Output
 APPROVE -> done. Stalemate -> present deadlocked issues, ask user.

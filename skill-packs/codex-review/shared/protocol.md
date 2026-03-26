@@ -56,6 +56,63 @@ Continue while `status === "running"`. Stop on `completed|failed|timeout|stalled
 
 **CRITICAL**: `status === "completed"` means Codex finished its turn -- it does NOT mean the debate is over. After `completed`, check the skill's Loop Decision table.
 
+## Debate Loop Protocol
+
+After each `poll` returns `status === "completed"`, the debate loop determines what happens next. **`completed` means Codex finished its turn — NOT that the review is over.**
+
+### Round Lifecycle
+
+```
+Poll (completed) → Check stalemate → Check verdict → [EXIT or CONTINUE?]
+                                                        EXIT → Finalize
+                                                        CONTINUE → Fix/Rebut → Render → Resume → Poll again
+```
+
+### Mandatory Rules
+
+1. **Check stalemate FIRST** — after poll completes, check `convergence.stalemate` before anything else. Stalemate overrides all other conditions — EXIT immediately, do NOT render rebuttal or resume.
+2. **If not stalemate, evaluate the variant-specific Loop Decision Table** below to determine EXIT or CONTINUE.
+3. **If the table says CONTINUE → MUST render response/rebuttal + resume**, even if you fixed ALL issues. Codex needs to re-verify fixes and may find new issues.
+4. **Response/rebuttal prompt is ALWAYS sent when the table says CONTINUE** — if all issues were fixed, set `DISPUTED_ITEMS` = `"None — all issues addressed"`. The prompt still gets rendered and sent.
+5. **No round cap** — loop continues until the variant-specific table says EXIT, or stalemate.
+6. **Never skip resume** — fixing code/plan without sending rebuttal+resume means Codex never re-verifies. The debate is incomplete.
+
+### Variant: Apply/Rebut (impl-review, plan-review)
+
+These skills use `APPROVE`/`REVISE` verdict taxonomy. Codex decides; Claude fixes and rebuts.
+
+**Loop Decision Table:**
+
+| # | Condition | Action |
+|---|-----------|--------|
+| 1 | `convergence.stalemate === true` | **EXIT** → Finalize (stalemate). Do NOT render rebuttal. |
+| 2 | `review.verdict.status === "APPROVE"` | **EXIT** → Finalize |
+| 3 | `review.verdict.status === "REVISE"` or open issues remain | **CONTINUE** → sub-steps below |
+
+**If CONTINUE** — all 4 sub-steps are mandatory:
+1. **Categorize** each `review.blocks[]` issue as ACCEPT (valid) or DISPUTE (invalid with proof)
+2. **Fix** accepted issues — edit code or plan file. Record evidence of each fix
+3. **ALWAYS render rebuttal prompt** — template includes `FIXED_ITEMS` and `DISPUTED_ITEMS`. Even if all fixed, `DISPUTED_ITEMS` = `"None — all issues addressed"`
+4. **ALWAYS resume** — `printf '%s' "$PROMPT" | node "$RUNNER" resume "$SESSION_DIR" --effort "$EFFORT"`. Then back to Poll
+
+### Variant: Cross-Analysis (commit-review, pr-review)
+
+These skills use `CONSENSUS`/`CONTINUE`/`STALEMATE` verdict taxonomy. Codex verdict is advisory; Claude orchestration is authoritative.
+
+**Loop Decision Table:**
+
+| # | Condition | Action |
+|---|-----------|--------|
+| 1 | `convergence.stalemate === true` | **EXIT** → Finalize (stalemate). Do NOT render response. |
+| 2 | Full/Partial Consensus (no severity ≥ medium disagreements) | **EXIT** → Finalize |
+| 3 | Disagreements severity ≥ medium remain | **CONTINUE** → sub-steps below |
+
+**If CONTINUE** — all 4 sub-steps are mandatory:
+1. **Compare** Claude FINDING-{N} vs Codex ISSUE-{N} — agreements, disagreements, unique findings
+2. **Build response** with `AGREED_POINTS`, `DISAGREED_POINTS`, `NEW_FINDINGS`
+3. **ALWAYS render round2+ prompt** with comparison results
+4. **ALWAYS resume** — then back to Poll
+
 ## Finalize + Cleanup
 ```bash
 node "$RUNNER" finalize "$SESSION_DIR" <<'FINALIZE_EOF'
