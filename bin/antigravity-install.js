@@ -157,11 +157,16 @@ try {
     const skillSrcDir = path.join(skillPackDir, 'skills', skill);
     const templatePath = path.join(skillSrcDir, 'SKILL.md');
 
-    // Read original template
-    const template = fs.readFileSync(templatePath, 'utf8');
+    // Read original template (normalize CRLF → LF for cross-platform)
+    const template = fs.readFileSync(templatePath, 'utf8').replace(/\r\n/g, '\n');
 
     // Convert to Antigravity format
-    const converted = convertFn(template);
+    let converted;
+    try {
+      converted = convertFn(template);
+    } catch (err) {
+      throw new Error(`Failed to convert ${skill}: ${err.message}`);
+    }
 
     // Inject actual runner path (replace AG placeholders)
     let injected = converted.content;

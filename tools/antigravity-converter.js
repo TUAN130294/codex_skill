@@ -24,7 +24,7 @@ import path from 'node:path';
 // Constants
 // ============================================================
 
-const CLAUDE_FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n/;
+const CLAUDE_FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/;
 
 const RUNNER_PLACEHOLDER = '{{RUNNER_PATH}}';
 const SKILLS_DIR_PLACEHOLDER = '{{SKILLS_DIR}}';
